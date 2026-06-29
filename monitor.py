@@ -4,10 +4,11 @@ Tất cả 5 nguồn đều dùng JSON API / REST API — không cần Playwrigh
 """
 
 import os
+import re
 import json
 import time
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import SOURCES
 import scrapers.phatdat as scraper_phatdat
@@ -38,9 +39,41 @@ SCRAPER_MAP = {
     "vingroup": scraper_vingroup,
 }
 
+FETCH_RETRIES = 3
+FETCH_RETRY_DELAY = 3  # giây
+RECENT_DAYS = 14  # Chỉ theo dõi tin trong N ngày gần nhất
+
+
+def parse_item_date(date_str: str) -> datetime | None:
+    if not date_str or not str(date_str).strip():
+        return None
+    s = str(date_str).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(s[:10], fmt)
+        except ValueError:
+            continue
+    m = re.search(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})", s)
+    if m:
+        try:
+            return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            pass
+    return None
+
+
+def filter_recent_items(items: list[dict], days: int = RECENT_DAYS) -> list[dict]:
+    cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days)
+    recent = []
+    for item in items:
+        dt = parse_item_date(item.get("date", ""))
+        if dt is None or dt >= cutoff:
+            recent.append(item)
+    return recent
+
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
-def fetch_source(source: dict, session: requests.Session) -> list[dict]:
+def fetch_source(source: dict, session: requests.Session) -> list[dict] | None:
     sid = source["id"]
     scraper = SCRAPER_MAP.get(sid)
     if not scraper:
@@ -48,13 +81,26 @@ def fetch_source(source: dict, session: requests.Session) -> list[dict]:
         return []
 
     print(f"  📡 [{sid}] Fetching...")
-    try:
-        items = scraper.fetch(source, session)
-        print(f"  ✅ [{sid}] {len(items)} items")
-        return items
-    except Exception as e:
-        print(f"  ❌ [{sid}] Lỗi: {e}")
-        return []
+    last_error: Exception | None = None
+    for attempt in range(1, FETCH_RETRIES + 1):
+        try:
+            items = scraper.fetch(source, session)
+            if attempt > 1:
+                print(f"  ✅ [{sid}] {len(items)} items (sau {attempt} lần thử)")
+            else:
+                print(f"  ✅ [{sid}] {len(items)} items")
+            return items
+        except Exception as e:
+            last_error = e
+            if attempt < FETCH_RETRIES:
+                print(
+                    f"  ⚠️  [{sid}] Lỗi lần {attempt}/{FETCH_RETRIES}: {e}"
+                    f" — thử lại sau {FETCH_RETRY_DELAY}s"
+                )
+                time.sleep(FETCH_RETRY_DELAY)
+            else:
+                print(f"  ❌ [{sid}] Lỗi sau {FETCH_RETRIES} lần: {e}")
+    return None
 
 
 # ── State management ───────────────────────────────────────────────────────────
@@ -66,13 +112,19 @@ def load_state() -> dict:
     return {}
 
 
-def save_state(all_items: dict) -> None:
+def save_state(all_items: dict, previous: dict) -> None:
+    sources: dict[str, list[str]] = {}
+    for source in SOURCES:
+        sid = source["id"]
+        items = all_items.get(sid)
+        if items is not None:
+            sources[sid] = [item["uid"] for item in items]
+        else:
+            sources[sid] = list(previous.get(sid, set()))
+
     data = {
         "updated_at": now(),
-        "sources": {
-            sid: [item["uid"] for item in items]
-            for sid, items in all_items.items()
-        },
+        "sources": sources,
     }
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -183,6 +235,18 @@ def main():
     for source in SOURCES:
         sid = source["id"]
         items = fetch_source(source, session)
+        if items is None:
+            print(f"  ⏭️  [{sid}] Giữ state cũ, bỏ qua lần này.\n")
+            continue
+
+        raw_count = len(items)
+        items = filter_recent_items(items)
+        if raw_count > len(items):
+            print(
+                f"  📅 [{sid}] Giữ {len(items)}/{raw_count} tin "
+                f"(trong {RECENT_DAYS} ngày gần nhất)"
+            )
+
         current_all[sid] = items
 
         if not items or is_first_run:
@@ -199,7 +263,7 @@ def main():
 
         print()
 
-    save_state(current_all)
+    save_state(current_all, known)
 
     if is_first_run:
         summary = "\n".join(
