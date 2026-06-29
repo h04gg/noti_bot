@@ -1,4 +1,4 @@
-# 📊 IR Monitor — 5 nguồn công bố thông tin
+# 📊 IR Monitor
 
 Bot Telegram tự động theo dõi và thông báo khi có tài liệu mới từ 5 trang IR:
 
