@@ -1,84 +1,50 @@
 """
-Scraper: Gelex — WordPress REST API (custom post type 'doc')
-URL: /wp-json/wp/v2/doc?doc-cat=cong-bo-thong-tin-2&per_page=20
-
-robots.txt chặn scraping HTML nhưng WP REST API thường vẫn accessible.
-Nếu bị block, fallback về HTML scraping với Playwright.
-
-Cách xác định category ID:
-  GET https://gelex.vn/wp-json/wp/v2/doc-cat?slug=cong-bo-thong-tin-2
-  → lấy trường "id"
+Scraper: Gelex — HTML (trang công bố thông tin)
+WP REST API /wp/v2/doc trả 404; lấy PDF từ trang doc-cat.
 """
 
+import re
 import hashlib
 import requests
-from datetime import datetime
-
-
-WP_API_BASE = "https://gelex.vn/wp-json/wp/v2"
-DOC_CAT_SLUG = "cong-bo-thong-tin-2"
+from bs4 import BeautifulSoup
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
-    # Bước 1: Lấy category ID từ slug
-    cat_id = _get_category_id(session)
-    if cat_id is None:
-        print("    Gelex: không lấy được category ID, bỏ qua")
-        return []
-
-    # Bước 2: Lấy danh sách documents
-    params = {
-        "doc-cat": cat_id,
-        "per_page": 50,
-        "page": 1,
-        "orderby": "date",
-        "order": "desc",
-        "_fields": "id,title,date,link,slug",
-    }
+    page_url = source.get("source_page", "https://gelex.vn/doc-cat/cong-bo-thong-tin-2")
     try:
-        resp = session.get(f"{WP_API_BASE}/doc", params=params, timeout=20)
+        resp = session.get(page_url, timeout=20)
         resp.raise_for_status()
-        posts = resp.json()
     except Exception as e:
-        print(f"    Gelex WP API /doc: {e}")
+        print(f"    Gelex HTML: {e}")
         return []
 
+    soup = BeautifulSoup(resp.text, "html.parser")
     items = []
-    for post in posts:
-        title_raw = post.get("title", {})
-        title = title_raw.get("rendered", "") if isinstance(title_raw, dict) else str(title_raw)
-        title = title.strip()
-        link = post.get("link", "").strip()
-        raw_date = post.get("date", "")
+    seen_links: set[str] = set()
 
-        if not title or not link:
+    for a in soup.select("a[href*='wp-content/uploads']"):
+        link = a.get("href", "").strip()
+        if not link or link in seen_links:
+            continue
+        seen_links.add(link)
+
+        title = a.get_text(" ", strip=True).strip()
+        if not title:
+            parent = a.find_parent("div")
+            if parent:
+                title = parent.get_text("\n", strip=True).split("\n")[0].strip()
+        if not title or len(title) < 5:
             continue
 
-        date = ""
-        if raw_date:
-            try:
-                dt = datetime.fromisoformat(raw_date)
-                date = dt.strftime("%d/%m/%Y")
-            except Exception:
-                date = raw_date[:10]
-
+        date = _date_from_url(link)
         uid = hashlib.md5(link.encode()).hexdigest()[:12]
         items.append({"uid": uid, "title": title, "link": link, "date": date})
 
     return items
 
 
-def _get_category_id(session: requests.Session) -> int | None:
-    try:
-        resp = session.get(
-            f"{WP_API_BASE}/doc-cat",
-            params={"slug": DOC_CAT_SLUG, "_fields": "id,slug,name"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        cats = resp.json()
-        if cats:
-            return cats[0]["id"]
-    except Exception as e:
-        print(f"    Gelex get category: {e}")
-    return None
+def _date_from_url(link: str) -> str:
+    m = re.search(r"/(20\d{2})(\d{2})(\d{2})-", link)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    return ""

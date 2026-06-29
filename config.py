@@ -16,6 +16,12 @@ SOURCES = [
         "name": "VPBank",
         "emoji": "🏦",
         "url": "https://www.vpbank.com.vn/uiux-api/api/document",
+        "params": {
+            "lang": "vi",
+            "categoryPath": "/quan-he-nha-dau-tu/cong-bo-thong-tin-khac/2026",
+            "pageSize": 10,
+            "pageIndex": 1,
+        },
         "source_page": "https://www.vpbank.com.vn/quan-he-nha-dau-tu/cong-bo-thong-tin-khac",
     },
     {

@@ -53,7 +53,7 @@ Nếu thành công, bot gửi tin xác nhận kèm số lượng tài liệu hi�
 ```
 ir-monitor/
 ├── .github/workflows/
-│   └── monitor.yml          # GitHub Actions (chạy mỗi 30 phút)
+│   └── monitor.yml          # GitHub Actions (chạy mỗi 10 phút)
 ├── scrapers/
 │   ├── phatdat.py           # JSON API scraper
 │   ├── vingroup.py          # HTML SSR scraper  

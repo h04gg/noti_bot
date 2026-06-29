@@ -2,7 +2,7 @@ name: IR Monitor — 5 nguồn
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # Mỗi 30 phút
+    - cron: "*/10 * * * *"   # Mỗi 10 phút
   workflow_dispatch:
 
 jobs:
