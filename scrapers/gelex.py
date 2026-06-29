@@ -6,13 +6,17 @@ WP REST API /wp/v2/doc trả 404; lấy PDF từ trang doc-cat.
 import re
 import hashlib
 import requests
+import urllib3
 from bs4 import BeautifulSoup
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
     page_url = source.get("source_page", "https://gelex.vn/doc-cat/cong-bo-thong-tin-2")
     try:
-        resp = session.get(page_url, timeout=20)
+        # gelex.vn có lỗi chuỗi chứng chỉ trên một số môi trường (GitHub Actions)
+        resp = session.get(page_url, timeout=20, verify=False)
         resp.raise_for_status()
     except Exception as e:
         print(f"    Gelex HTML: {e}")
