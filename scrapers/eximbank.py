@@ -9,6 +9,8 @@ import hashlib
 import requests
 from datetime import datetime
 
+from filters import is_recent_item
+
 
 PAGE_URL = "https://eximbank.com.vn/thong-tin-khac"
 
@@ -53,7 +55,9 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         seen_links.add(link)
         date = _format_date(created)
         uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        items.append({"uid": uid, "title": title, "link": link, "date": date})
+        item = {"uid": uid, "title": title, "link": link, "date": date}
+        if is_recent_item(item):
+            items.append(item)
 
     if not items:
         print("    Eximbank: payload có nhưng không parse được tài liệu")

@@ -1,21 +1,23 @@
 """
-IR Monitor — Theo dõi tin tức mới từ 5 trang IR và gửi Telegram
-Tất cả 5 nguồn đều dùng JSON API / REST API — không cần Playwright.
+IR Monitor — Theo dõi tin tức mới từ các trang IR và gửi Telegram
 """
 
 import os
-import re
 import json
 import time
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import SOURCES
+from config import SOURCES, CATEGORIES, RECENT_DAYS
 import scrapers.phatdat as scraper_phatdat
 import scrapers.vpbank as scraper_vpbank
 import scrapers.gelex as scraper_gelex
 import scrapers.eximbank as scraper_eximbank
 import scrapers.vingroup as scraper_vingroup
+import scrapers.hoanghuy as scraper_hoanghuy
+import scrapers.dic as scraper_dic
+from filters import filter_recent_items
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -37,39 +39,14 @@ SCRAPER_MAP = {
     "gelex": scraper_gelex,
     "eximbank": scraper_eximbank,
     "vingroup": scraper_vingroup,
+    "hoanghuy": scraper_hoanghuy,
+    "dic": scraper_dic,
 }
+
+FETCH_WORKERS = min(8, len(SOURCES))
 
 FETCH_RETRIES = 3
 FETCH_RETRY_DELAY = 3  # giây
-RECENT_DAYS = 14  # Chỉ theo dõi tin trong N ngày gần nhất
-
-
-def parse_item_date(date_str: str) -> datetime | None:
-    if not date_str or not str(date_str).strip():
-        return None
-    s = str(date_str).strip()
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y"):
-        try:
-            return datetime.strptime(s[:10], fmt)
-        except ValueError:
-            continue
-    m = re.search(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})", s)
-    if m:
-        try:
-            return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-        except ValueError:
-            pass
-    return None
-
-
-def filter_recent_items(items: list[dict], days: int = RECENT_DAYS) -> list[dict]:
-    cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days)
-    recent = []
-    for item in items:
-        dt = parse_item_date(item.get("date", ""))
-        if dt is None or dt >= cutoff:
-            recent.append(item)
-    return recent
 
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
@@ -101,6 +78,25 @@ def fetch_source(source: dict, session: requests.Session) -> list[dict] | None:
             else:
                 print(f"  ❌ [{sid}] Lỗi sau {FETCH_RETRIES} lần: {e}")
     return None
+
+
+def fetch_all_sources() -> dict[str, list[dict] | None]:
+    """Fetch tất cả nguồn song song (mỗi thread dùng session riêng)."""
+    results: dict[str, list[dict] | None] = {}
+
+    def _fetch_one(source: dict) -> tuple[str, list[dict] | None]:
+        session = requests.Session()
+        session.headers.update(HEADERS)
+        return source["id"], fetch_source(source, session)
+
+    print(f"📡 Fetching {len(SOURCES)} nguồn song song (workers={FETCH_WORKERS})...\n")
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
+        futures = [executor.submit(_fetch_one, source) for source in SOURCES]
+        for future in as_completed(futures):
+            sid, items = future.result()
+            results[sid] = items
+
+    return results
 
 
 # ── State management ───────────────────────────────────────────────────────────
@@ -159,6 +155,35 @@ def send_telegram(message: str) -> bool:
         return False
 
 
+def _get_category(source: dict) -> dict:
+    return CATEGORIES.get(source.get("category", "other"), CATEGORIES["other"])
+
+
+def _source_header(source: dict, total_new: int, part: str = "") -> str:
+    cat = _get_category(source)
+    header = (
+        f"{cat['emoji']} <b>{cat['name']}</b> · "
+        f"{source['emoji']} <b>{source['name']} — {total_new} tin mới</b>"
+    )
+    if part:
+        header += f" <i>{part}</i>"
+    return header
+
+
+def _activation_summary(current_all: dict) -> str:
+    blocks = []
+    for cat_id, cat in CATEGORIES.items():
+        sources_in_cat = [s for s in SOURCES if s.get("category", "other") == cat_id]
+        if not sources_in_cat:
+            continue
+        lines = [f"{cat['emoji']} <b>{cat['name']}</b>"]
+        for s in sources_in_cat:
+            count = len(current_all.get(s["id"], []))
+            lines.append(f"  {s['emoji']} {s['name']}: {count} tin")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def _format_item_line(item: dict) -> str:
     date_str = f" <i>({item['date']})</i>" if item.get("date") else ""
     return f"📄 <a href=\"{item['link']}\">{item['title']}</a>{date_str}"
@@ -182,9 +207,7 @@ def _message_chunks(source: dict, new_items: list[dict], total_new: int) -> list
     messages = []
     total_parts = len(batches)
     for i, part_lines in enumerate(batches):
-        header = f"{source['emoji']} <b>{source['name']} — {total_new} tin mới</b>"
-        if total_parts > 1:
-            header += f" <i>({i + 1}/{total_parts})</i>"
+        header = _source_header(source, total_new, part=f"({i + 1}/{total_parts})" if total_parts > 1 else "")
         msg = header + "\n" + "─" * 28 + "\n\n" + "\n".join(part_lines)
         if i == 0 and total_new > len(new_items):
             msg += f"\n\n<i>… và {total_new - len(new_items)} tin khác (xem tại link nguồn)</i>"
@@ -221,9 +244,6 @@ def main():
     print(f"IR Monitor — {now()}")
     print(f"{'='*55}\n")
 
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
     known = load_state()
     is_first_run = not bool(known)
     if is_first_run:
@@ -232,20 +252,21 @@ def main():
     current_all: dict[str, list[dict]] = {}
     total_new = 0
 
+    fetch_results = fetch_all_sources()
+
     for source in SOURCES:
         sid = source["id"]
-        items = fetch_source(source, session)
+        items = fetch_results.get(sid)
         if items is None:
             print(f"  ⏭️  [{sid}] Giữ state cũ, bỏ qua lần này.\n")
             continue
 
         raw_count = len(items)
         items = filter_recent_items(items)
-        if raw_count > len(items):
-            print(
-                f"  📅 [{sid}] Giữ {len(items)}/{raw_count} tin "
-                f"(trong {RECENT_DAYS} ngày gần nhất)"
-            )
+        print(
+            f"  📅 [{sid}] {len(items)}/{raw_count} tin "
+            f"(trong {RECENT_DAYS} ngày / 2 tuần gần nhất)"
+        )
 
         current_all[sid] = items
 
@@ -266,13 +287,10 @@ def main():
     save_state(current_all, known)
 
     if is_first_run:
-        summary = "\n".join(
-            f"  {s['emoji']} {s['name']}: {len(current_all.get(s['id'], []))} tin"
-            for s in SOURCES
-        )
+        summary = _activation_summary(current_all)
         send_telegram(
             "✅ <b>IR Monitor đã kích hoạt!</b>\n\n"
-            f"Theo dõi {len(SOURCES)} nguồn:\n{summary}\n\n"
+            f"Theo dõi {len(SOURCES)} nguồn (tin {RECENT_DAYS} ngày gần nhất):\n\n{summary}\n\n"
             "Sẽ thông báo khi có tin mới. 🚀"
         )
     elif total_new == 0:

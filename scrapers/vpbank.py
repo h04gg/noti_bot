@@ -8,6 +8,9 @@ import hashlib
 import requests
 from datetime import datetime
 
+from config import RECENT_DAYS
+from filters import filter_recent_items, newest_item_date, recent_cutoff
+
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
     url = source["url"]
@@ -25,11 +28,17 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         params["pageIndex"] = page_index
         items, total = _fetch_page(session, url, params)
         all_items.extend(items)
+
         if not items or page_index * page_size >= total:
             break
+
+        page_newest = newest_item_date(items)
+        if page_newest and page_newest < recent_cutoff(RECENT_DAYS):
+            break
+
         page_index += 1
 
-    return all_items
+    return filter_recent_items(all_items)
 
 
 def _fetch_page(
