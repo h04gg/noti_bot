@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import RECENT_DAYS
-from filters import is_recent_item, newest_item_date, recent_cutoff
+from filters import is_recent_item, parse_item_date, recent_cutoff
 
 BASE = "https://www.dic.vn"
 MAX_PAGES = 20
@@ -28,8 +28,9 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
 
         all_items.extend(item for item in page_items if is_recent_item(item))
 
-        page_newest = newest_item_date(page_items)
-        if page_newest and page_newest < recent_cutoff(RECENT_DAYS):
+        dates = [parse_item_date(item.get("date", "")) for item in page_items]
+        dates = [dt for dt in dates if dt is not None]
+        if dates and min(dates) < recent_cutoff(RECENT_DAYS):
             break
 
     return all_items

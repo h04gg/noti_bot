@@ -2,21 +2,17 @@
 IR Monitor — Theo dõi tin tức mới từ các trang IR và gửi Telegram
 """
 
+from __future__ import annotations
+
 import os
 import json
 import time
+import importlib
 import requests
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import SOURCES, CATEGORIES, RECENT_DAYS
-import scrapers.phatdat as scraper_phatdat
-import scrapers.vpbank as scraper_vpbank
-import scrapers.gelex as scraper_gelex
-import scrapers.eximbank as scraper_eximbank
-import scrapers.vingroup as scraper_vingroup
-import scrapers.hoanghuy as scraper_hoanghuy
-import scrapers.dic as scraper_dic
 from filters import filter_recent_items
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
@@ -33,17 +29,20 @@ HEADERS = {
     "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
 }
 
-SCRAPER_MAP = {
-    "phatdat": scraper_phatdat,
-    "vpbank": scraper_vpbank,
-    "gelex": scraper_gelex,
-    "eximbank": scraper_eximbank,
-    "vingroup": scraper_vingroup,
-    "hoanghuy": scraper_hoanghuy,
-    "dic": scraper_dic,
-}
+def _build_scraper_map() -> dict:
+    mapping = {}
+    for source in SOURCES:
+        sid = source["id"]
+        try:
+            mapping[sid] = importlib.import_module(f"scrapers.{sid}")
+        except ImportError as exc:
+            print(f"⚠️  Thiếu scraper scrapers.{sid}: {exc}")
+    return mapping
 
-FETCH_WORKERS = min(8, len(SOURCES))
+
+SCRAPER_MAP = _build_scraper_map()
+
+FETCH_WORKERS = min(16, len(SOURCES))
 
 FETCH_RETRIES = 3
 FETCH_RETRY_DELAY = 3  # giây

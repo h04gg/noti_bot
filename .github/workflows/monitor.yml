@@ -1,14 +1,14 @@
-name: IR Monitor — 7 nguồn
+name: IR Monitor — 17 nguồn
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # Mỗi 10 phút
+    - cron: "*/30 * * * *"   # Mỗi 30 phút
   workflow_dispatch:
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repo
