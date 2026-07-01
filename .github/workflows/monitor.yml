@@ -1,4 +1,4 @@
-name: IR Monitor — 17 nguồn
+name: IR Monitor — 24 nguồn
 
 on:
   workflow_dispatch:   # Trigger bởi cron-job.org (không dùng schedule GHA)

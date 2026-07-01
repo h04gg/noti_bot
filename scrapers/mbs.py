@@ -1,34 +1,58 @@
-"""Scraper: MB Securities (MBS)."""
+"""Scraper: MB Securities (MBS) — HTML (Cloudflare → curl_cffi)."""
 
 from __future__ import annotations
 
-import re
-
 import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests as curl_requests
 
 from scrapers._common import extract_dmY, make_item, paginate_until_recent
 
 BASE = "https://www.mbs.com.vn"
+PAGE_URL = f"{BASE}/cong-bo-thong-tin/"
+IMPERSONATE = "chrome120"
+
+
+def _page_url(base: str, page: int) -> str:
+    if page <= 1:
+        return base
+    return f"{base.rstrip('/')}/page/{page}/"
+
+
+def _parse_html(html: str) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    items: list[dict] = []
+    seen: set[str] = set()
+    for block in soup.select("div.flex.flex-col.gap-4"):
+        a = block.select_one("h3 a[href]")
+        if not a:
+            continue
+        title = a.get_text(" ", strip=True)
+        link = a["href"].strip()
+        if not title or not link or link in seen:
+            continue
+        if not link.startswith("http"):
+            link = BASE + link
+        seen.add(link)
+
+        date_el = block.select_one("p")
+        date = extract_dmY(date_el.get_text(strip=True) if date_el else "") or extract_dmY(title)
+        items.append(make_item(title, link, date))
+    return items
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
-    page_url = source.get("url", f"{BASE}/cong-bo-thong-tin/")
-    session.headers.update(
-        {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
-        }
-    )
+    base_url = source.get("url", PAGE_URL)
 
     def _page(page: int) -> list[dict]:
-        params = {"page": page} if page > 1 else None
+        url = _page_url(base_url, page)
         try:
-            resp = session.get(page_url, params=params, timeout=25, verify=False)
+            resp = curl_requests.get(
+                url,
+                impersonate=IMPERSONATE,
+                timeout=30,
+                headers={"Accept-Language": "vi-VN,vi;q=0.9"},
+            )
             if resp.status_code == 403:
                 print("    MBS: bị chặn bot (403)")
                 return []
@@ -36,29 +60,6 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         except Exception as e:
             print(f"    MBS page {page}: {e}")
             return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items: list[dict] = []
-        seen: set[str] = set()
-
-        for a in soup.select("a[href*='cong-bo-thong-tin'], a[href*='tin-co-dong'], a[href*='.pdf']"):
-            title = a.get_text(" ", strip=True)
-            link = a.get("href", "").strip()
-            if not title or len(title) < 15 or not link:
-                continue
-            if not link.startswith("http"):
-                link = BASE + link
-            if link in seen:
-                continue
-            seen.add(link)
-            parent = a.parent
-            date = extract_dmY(parent.get_text(" ", strip=True) if parent else "")
-            if not date:
-                dm = re.search(r"(20\d{6})", link)
-                if dm:
-                    s = dm.group(1)
-                    date = f"{s[6:8]}/{s[4:6]}/{s[0:4]}"
-            items.append(make_item(title, link, date))
-        return items
+        return _parse_html(resp.text)
 
     return paginate_until_recent(_page)
