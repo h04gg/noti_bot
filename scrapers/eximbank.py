@@ -1,25 +1,62 @@
 """
 Scraper: Eximbank — /thong-tin-khac (Next.js RSC payload)
 Trang dùng React Server Components; danh sách CBTT nằm trong payload
-self.__next_f.push, không có link PDF trong thẻ <a> như Gelex.
+self.__next_f.push, không có link PDF trong thẻ <a>.
 """
 
+from __future__ import annotations
+
 import re
-import hashlib
+
 import requests
-from datetime import datetime
 
-from filters import is_recent_item
-
+from scrapers._common import date_from_iso, make_item
 
 PAGE_URL = "https://eximbank.com.vn/thong-tin-khac"
 
-_DOC_PATTERN = re.compile(
-    r'\\"title\\":\\"([^\\]+)\\",\\"type\\":\\"thong-tin-khac\\".{0,3000}?'
-    r'\\"featured_image\\":\{[^}]*?\\"path\\":\\"(https://media\.eximbank\.com\.vn[^\\]+)\\"'
-    r'.{0,800}?\\"created_at\\":\\"([^\\]+)\\"',
+_BLOCK_RE = re.compile(
+    r'\\"type\\":\\"thong-tin-khac\\"(?P<body>.{0,5000}?)'
+    r'\\"created_at\\":\\"(?P<created>[^\\]+)\\"',
     re.S,
 )
+_TITLE_RE = re.compile(r'\\"title\\":\\"([^\\]+)\\"')
+_PATH_RE = re.compile(r'\\"path\\":\\"(https://media\.eximbank\.com\.vn[^\\]+)\\"')
+_FILENAME_DATE_RE = re.compile(r"(20\d{2})(\d{2})(\d{2})")
+
+
+def _date_from_doc(created: str, link: str) -> str:
+    date = date_from_iso(created)
+    if date:
+        return date
+    m = _FILENAME_DATE_RE.search(link)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    return ""
+
+
+def _parse_payload(payload: str) -> list[dict]:
+    items: list[dict] = []
+    seen_links: set[str] = set()
+
+    for block in _BLOCK_RE.finditer(payload):
+        body = block.group("body")
+        title_m = _TITLE_RE.search(body)
+        path_m = _PATH_RE.search(body)
+        if not title_m or not path_m:
+            continue
+
+        title = title_m.group(1).strip()
+        link = path_m.group(1).strip()
+        if not title or not link or link in seen_links:
+            continue
+        if len(title) < 15 or title.startswith(("Năm ", "Thông báo năm")):
+            continue
+
+        seen_links.add(link)
+        date = _date_from_doc(block.group("created"), link)
+        items.append(make_item(title, link, date))
+
+    return items
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
@@ -39,34 +76,8 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         return []
 
     payload = max(chunks, key=len)
-    items = []
-    seen_links: set[str] = set()
-
-    for match in _DOC_PATTERN.finditer(payload):
-        title = match.group(1).strip()
-        link = match.group(2).strip()
-        created = match.group(3).strip()
-
-        if not title or not link or link in seen_links:
-            continue
-        if len(title) < 15 or title.startswith(("Năm ", "Thông báo năm")):
-            continue
-
-        seen_links.add(link)
-        date = _format_date(created)
-        uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        item = {"uid": uid, "title": title, "link": link, "date": date}
-        if is_recent_item(item):
-            items.append(item)
-
+    items = _parse_payload(payload)
     if not items:
         print("    Eximbank: payload có nhưng không parse được tài liệu")
 
     return items
-
-
-def _format_date(raw: str) -> str:
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).strftime("%d/%m/%Y")
-    except Exception:
-        return raw[:10]

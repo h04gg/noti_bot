@@ -112,10 +112,12 @@ def save_state(all_items: dict, previous: dict) -> None:
     for source in SOURCES:
         sid = source["id"]
         items = all_items.get(sid)
+        prev_uids = set(previous.get(sid, set()))
         if items is not None:
-            sources[sid] = [item["uid"] for item in items]
+            # Gộp UID cũ + mới để không gửi lại tin đã thông báo
+            sources[sid] = list(prev_uids | {item["uid"] for item in items})
         else:
-            sources[sid] = list(previous.get(sid, set()))
+            sources[sid] = list(prev_uids)
 
     data = {
         "updated_at": now(),
