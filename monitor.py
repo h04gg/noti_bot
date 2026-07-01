@@ -107,6 +107,11 @@ def load_state() -> dict:
     return {}
 
 
+def has_known_items(known: dict) -> bool:
+    """True nếu đã từng lưu ít nhất 1 UID (đã qua lần kích hoạt)."""
+    return any(known.get(source["id"]) for source in SOURCES)
+
+
 def save_state(all_items: dict, previous: dict) -> None:
     sources: dict[str, list[str]] = {}
     for source in SOURCES:
@@ -246,9 +251,9 @@ def main():
     print(f"{'='*55}\n")
 
     known = load_state()
-    is_first_run = not bool(known)
+    is_first_run = not has_known_items(known)
     if is_first_run:
-        print("🆕 Lần đầu chạy — lưu state, chưa gửi thông báo.\n")
+        print("🆕 Lần đầu / state trống — lưu baseline, chưa gửi tin cũ.\n")
 
     current_all: dict[str, list[dict]] = {}
     total_new = 0
