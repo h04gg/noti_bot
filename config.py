@@ -29,9 +29,12 @@ SOURCES = [
         "name": "Vingroup",
         "emoji": "🏢",
         "category": "bds",
-        "url": "https://vingroup.net/quan-he-co-dong/cong-bo-thong-tin/dai-hoi-dong-co-dong",
+        "urls": [
+            "https://vingroup.net/quan-he-co-dong/cong-bo-thong-tin/cong-bo-thong-tin",
+            "https://vingroup.net/quan-he-co-dong/cong-bo-thong-tin/dai-hoi-dong-co-dong",
+        ],
         "params": {"items": 50},
-        "source_page": "https://vingroup.net/quan-he-co-dong/cong-bo-thong-tin/dai-hoi-dong-co-dong",
+        "source_page": "https://vingroup.net/quan-he-co-dong/cong-bo-thong-tin",
     },
     {
         "id": "hoanghuy",

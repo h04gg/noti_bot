@@ -1,29 +1,27 @@
 """
 Scraper: Vingroup — HTML SSR (requests + BeautifulSoup)
-URL: /quan-he-co-dong/cong-bo-thong-tin/dai-hoi-dong-co-dong
+Hai mục: Công bố thông tin + Đại hội đồng cổ đông.
 """
+
+from __future__ import annotations
 
 import requests
 from bs4 import BeautifulSoup
 
 from scrapers._common import make_item
 
+BASE = "https://vingroup.net"
 
-def fetch(source: dict, session: requests.Session) -> list[dict]:
-    params = source.get("params", {})
-    resp = session.get(source["url"], params=params, timeout=20)
-    resp.raise_for_status()
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    items = []
-
+def _parse_page(soup: BeautifulSoup) -> list[dict]:
+    items: list[dict] = []
     for a in soup.select("a[href*='ircdn.vingroup.net'], a[href*='/bai-viet/']"):
         title = a.get_text(" ", strip=True).strip()
         if not title:
             continue
         link = a.get("href", "").strip()
         if not link.startswith("http"):
-            link = "https://vingroup.net" + link
+            link = BASE + link
 
         date = ""
         parent = a.parent
@@ -33,5 +31,23 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
                 date = em.get_text(strip=True)
 
         items.append(make_item(title, link, date))
-
     return items
+
+
+def fetch(source: dict, session: requests.Session) -> list[dict]:
+    urls = source.get("urls") or [source["url"]]
+    params = source.get("params", {})
+    seen_uids: set[str] = set()
+    all_items: list[dict] = []
+
+    for url in urls:
+        resp = session.get(url, params=params, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for item in _parse_page(soup):
+            if item["uid"] in seen_uids:
+                continue
+            seen_uids.add(item["uid"])
+            all_items.append(item)
+
+    return all_items
