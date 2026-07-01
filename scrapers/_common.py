@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
+from urllib.parse import unquote, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -13,9 +14,40 @@ from config import RECENT_DAYS
 from filters import is_recent_item, parse_item_date, recent_cutoff
 
 
+def normalize_link(link: str) -> str:
+    """Chuẩn hóa URL để UID ổn định khi site đổi http/https hoặc thêm /."""
+    link = (link or "").strip()
+    if not link:
+        return ""
+    parsed = urlparse(link)
+    scheme = parsed.scheme.lower()
+    if scheme in ("http", "https"):
+        scheme = "https"
+    netloc = parsed.netloc.lower()
+    path = unquote(parsed.path.rstrip("/")) or "/"
+    return urlunparse((scheme, netloc, path, "", parsed.query, ""))
+
+
+def item_uid(link: str) -> str:
+    return hashlib.md5(normalize_link(link).encode()).hexdigest()[:12]
+
+
+def item_uid_legacy(link: str) -> str:
+    """UID cũ (trước khi normalize) — dùng khi đọc state đã lưu."""
+    return hashlib.md5((link or "").strip().encode()).hexdigest()[:12]
+
+
+def is_known_item(item: dict, known_uids: set[str]) -> bool:
+    if item["uid"] in known_uids:
+        return True
+    legacy = item_uid_legacy(item.get("link", ""))
+    return legacy in known_uids and legacy != item["uid"]
+
+
 def make_item(title: str, link: str, date: str) -> dict:
+    link = link.strip()
     return {
-        "uid": hashlib.md5(link.encode()).hexdigest()[:12],
+        "uid": item_uid(link),
         "title": title.strip(),
         "link": link,
         "date": date,

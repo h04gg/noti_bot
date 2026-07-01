@@ -3,9 +3,10 @@ Scraper: Phát Đạt — JSON API
 URL: /ajax/reports/filter?category_id=5&page=1&lang=vi
 """
 
-import hashlib
 import requests
 from bs4 import BeautifulSoup
+
+from scrapers._common import make_item
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
@@ -31,7 +32,6 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         if date_div:
             date = date_div.get_text(strip=True)
 
-        uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        items.append({"uid": uid, "title": title, "link": link, "date": date})
+        items.append(make_item(title, link, date))
 
     return items

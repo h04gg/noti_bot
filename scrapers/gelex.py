@@ -4,10 +4,11 @@ WP REST API /wp/v2/doc trả 404; lấy PDF từ trang doc-cat.
 """
 
 import re
-import hashlib
 import requests
 import urllib3
 from bs4 import BeautifulSoup
+
+from scrapers._common import make_item
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -41,8 +42,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             continue
 
         date = _date_from_url(link)
-        uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        items.append({"uid": uid, "title": title, "link": link, "date": date})
+        items.append(make_item(title, link, date))
 
     return items
 

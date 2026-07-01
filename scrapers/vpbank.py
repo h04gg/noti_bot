@@ -4,12 +4,12 @@ API: /uiux-api/api/document?lang=vi&categoryPath=...&pageSize=...&pageIndex=...
 """
 
 import re
-import hashlib
 import requests
 from datetime import datetime
 
 from config import RECENT_DAYS
 from filters import filter_recent_items, newest_item_date, recent_cutoff
+from scrapers._common import make_item
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
@@ -78,7 +78,6 @@ def _fetch_page(
             except Exception:
                 date = publish_date[:10]
 
-        uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        items.append({"uid": uid, "title": title, "link": link, "date": date})
+        items.append(make_item(title, link, date))
 
     return items, int(data.get("total", 0))

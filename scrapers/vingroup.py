@@ -3,9 +3,10 @@ Scraper: Vingroup — HTML SSR (requests + BeautifulSoup)
 URL: /quan-he-co-dong/cong-bo-thong-tin/dai-hoi-dong-co-dong
 """
 
-import hashlib
 import requests
 from bs4 import BeautifulSoup
+
+from scrapers._common import make_item
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
@@ -31,7 +32,6 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             if em:
                 date = em.get_text(strip=True)
 
-        uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        items.append({"uid": uid, "title": title, "link": link, "date": date})
+        items.append(make_item(title, link, date))
 
     return items

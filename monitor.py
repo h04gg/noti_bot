@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import SOURCES, CATEGORIES, RECENT_DAYS
 from filters import filter_recent_items
+from scrapers._common import is_known_item
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -99,12 +100,22 @@ def fetch_all_sources() -> dict[str, list[dict] | None]:
 
 
 # ── State management ───────────────────────────────────────────────────────────
-def load_state() -> dict:
-    if os.path.exists(STATE_FILE):
+STATE_VERSION = 1
+
+
+def load_state() -> tuple[dict[str, set[str]], set[str]]:
+    """Trả về (known_uids, sids_có_trong_file) — dùng phân biệt nguồn mới thêm config."""
+    if not os.path.exists(STATE_FILE):
+        return {}, set()
+    try:
         with open(STATE_FILE, encoding="utf-8") as f:
             raw = json.load(f)
-            return {k: set(v) for k, v in raw.get("sources", {}).items()}
-    return {}
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"⚠️  State file hỏng, bắt đầu lại: {e}")
+        return {}, set()
+    sources = raw.get("sources", {})
+    known = {k: set(v) for k, v in sources.items()}
+    return known, set(sources.keys())
 
 
 def has_known_items(known: dict) -> bool:
@@ -112,24 +123,26 @@ def has_known_items(known: dict) -> bool:
     return any(known.get(source["id"]) for source in SOURCES)
 
 
-def save_state(all_items: dict, previous: dict) -> None:
-    sources: dict[str, list[str]] = {}
-    for source in SOURCES:
-        sid = source["id"]
-        items = all_items.get(sid)
-        prev_uids = set(previous.get(sid, set()))
-        if items is not None:
-            # Gộp UID cũ + mới để không gửi lại tin đã thông báo
-            sources[sid] = list(prev_uids | {item["uid"] for item in items})
-        else:
-            sources[sid] = list(prev_uids)
+def merge_uids(known: dict[str, set[str]], sid: str, items: list[dict]) -> None:
+    if not items:
+        return
+    known.setdefault(sid, set()).update(item["uid"] for item in items)
 
+
+def write_state(known: dict[str, set[str]]) -> None:
+    """Ghi state ngay lập tức (atomic) — gọi sau mỗi nguồn để tránh mất UID."""
     data = {
+        "version": STATE_VERSION,
         "updated_at": now(),
-        "sources": sources,
+        "sources": {
+            source["id"]: sorted(known.get(source["id"], set()))
+            for source in SOURCES
+        },
     }
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
+    tmp = f"{STATE_FILE}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, STATE_FILE)
 
 
 # ── Telegram ───────────────────────────────────────────────────────────────────
@@ -250,7 +263,7 @@ def main():
     print(f"IR Monitor — {now()}")
     print(f"{'='*55}\n")
 
-    known = load_state()
+    known, initial_sids = load_state()
     is_first_run = not has_known_items(known)
     if is_first_run:
         print("🆕 Lần đầu / state trống — lưu baseline, chưa gửi tin cũ.\n")
@@ -276,21 +289,39 @@ def main():
 
         current_all[sid] = items
 
-        if not items or is_first_run:
+        # Nguồn mới thêm vào config (chưa có trong file state) — baseline, không gửi tin cũ
+        if sid not in initial_sids and has_known_items(known) and not is_first_run:
+            merge_uids(known, sid, items)
+            write_state(known)
+            print(f"  🆕 [{sid}] Nguồn mới — baseline {len(items)} tin, chưa gửi.\n")
+            continue
+
+        if is_first_run:
             print()
             continue
 
         known_uids = known.get(sid, set())
-        new_items = [item for item in items if item["uid"] not in known_uids]
+        new_items = [item for item in items if not is_known_item(item, known_uids)]
         if new_items:
             total_new += len(new_items)
-            print(f"  🔔 {len(new_items)} tin mới! Gửi Telegram...")
+            # Lưu UID trước Telegram — tránh lặp nếu crash sau khi gửi
+            merge_uids(known, sid, new_items)
+            write_state(known)
+            print(f"  🔔 [{sid}] {len(new_items)} tin mới! Gửi Telegram...")
             send_new_items(source, new_items)
             time.sleep(1)
 
+        # Gộp UID tin hiện tại (giữ UID cũ ngoài cửa sổ 14 ngày)
+        merge_uids(known, sid, items)
+        write_state(known)
         print()
 
-    save_state(current_all, known)
+    if is_first_run:
+        for source in SOURCES:
+            sid = source["id"]
+            if sid in current_all:
+                merge_uids(known, sid, current_all[sid])
+        write_state(known)
 
     if is_first_run:
         summary = _activation_summary(current_all)

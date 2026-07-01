@@ -4,9 +4,10 @@ URL: https://www.hoanghuy.vn/quan-he-co-dong/
 """
 
 import re
-import hashlib
 import requests
 from bs4 import BeautifulSoup
+
+from scrapers._common import make_item
 
 
 BASE = "https://www.hoanghuy.vn"
@@ -39,8 +40,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         seen_links.add(link)
 
         date = _extract_date(a)
-        uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        items.append({"uid": uid, "title": title, "link": link, "date": date})
+        items.append(make_item(title, link, date))
 
     return items
 

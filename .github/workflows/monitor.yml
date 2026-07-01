@@ -3,10 +3,10 @@ name: IR Monitor — 17 nguồn
 on:
   workflow_dispatch:   # Trigger bởi cron-job.org (không dùng schedule GHA)
 
-# Tránh 2 lần chạy song song nếu trigger trùng
+# Hủy lần chạy cũ nếu trigger trùng — tránh 2 job cùng đọc state cũ → gửi trùng
 concurrency:
   group: ir-monitor
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   monitor:
@@ -31,13 +31,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Key theo nội dung file: GHA không ghi đè cache khi key trùng — key cố định
+      # khiến save bị skip sau lần đầu → state không lưu → spam tin mới mỗi lần chạy.
       - name: Restore IR state
         uses: actions/cache/restore@v4
         with:
           path: ir_state.json
-          key: ir-monitor-state
+          key: ir-monitor-state-${{ hashFiles('ir_state.json') }}
           restore-keys: |
-            ir-monitor-state
+            ir-monitor-state-
 
       - name: Run monitor
         env:
@@ -46,7 +48,8 @@ jobs:
         run: python monitor.py
 
       - name: Save IR state
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: ir_state.json
-          key: ir-monitor-state
+          key: ir-monitor-state-${{ hashFiles('ir_state.json') }}

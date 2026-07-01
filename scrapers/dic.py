@@ -6,12 +6,12 @@ URL: https://www.dic.vn/cong-bo-thong-tin
 from __future__ import annotations
 
 import re
-import hashlib
 import requests
 from bs4 import BeautifulSoup
 
 from config import RECENT_DAYS
 from filters import is_recent_item, parse_item_date, recent_cutoff
+from scrapers._common import make_item
 
 BASE = "https://www.dic.vn"
 MAX_PAGES = 20
@@ -62,8 +62,7 @@ def _fetch_page(session: requests.Session, base_url: str, page: int) -> list[dic
         seen_links.add(link)
 
         date = _extract_date(a)
-        uid = hashlib.md5(link.encode()).hexdigest()[:12]
-        items.append({"uid": uid, "title": title, "link": link, "date": date})
+        items.append(make_item(title, link, date))
 
     return items
 
