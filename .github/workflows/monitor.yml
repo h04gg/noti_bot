@@ -1,11 +1,9 @@
 name: IR Monitor — 17 nguồn
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"   # Mỗi 30 phút
-  workflow_dispatch:
+  workflow_dispatch:   # Trigger bởi cron-job.org (không dùng schedule GHA)
 
-# Tránh 2 lần chạy song song (cron GHA + cron-job.org) cùng đọc state cũ → gửi trùng
+# Tránh 2 lần chạy song song nếu trigger trùng
 concurrency:
   group: ir-monitor
   cancel-in-progress: false
