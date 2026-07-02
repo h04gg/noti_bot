@@ -14,6 +14,10 @@ from config import RECENT_DAYS
 from filters import is_recent_item, parse_item_date, recent_cutoff
 
 
+class ScraperBlockedError(RuntimeError):
+    """Trang 1 bị chặn (403/Cloudflare) — monitor sẽ báo Telegram."""
+
+
 def normalize_link(link: str) -> str:
     """Chuẩn hóa URL để UID ổn định khi site đổi http/https hoặc thêm /."""
     link = (link or "").strip()

@@ -305,18 +305,30 @@ def _format_fetch_errors(errors: dict[str, str]) -> list[str]:
     return blocks
 
 
-def send_fetch_errors(errors: dict[str, str]) -> bool:
-    if not errors:
+def send_fetch_errors(errors: dict[str, str], warnings: dict[str, str] | None = None) -> bool:
+    warnings = warnings or {}
+    issues: dict[str, str] = dict(errors)
+    for sid, msg in warnings.items():
+        if sid not in issues:
+            issues[sid] = msg
+    if not issues:
         return True
 
-    blocks = _format_fetch_errors(errors)
+    blocks = _format_fetch_errors(issues)
     if not blocks:
         return True
+
+    title_bits: list[str] = []
+    if errors:
+        title_bits.append(f"{len(errors)} lỗi")
+    if warnings:
+        title_bits.append(f"{len(warnings)} cảnh báo")
+    title = "⚠️ IR Monitor — " + ", ".join(title_bits)
 
     # Plain text — tránh parse HTML vỡ vì ký tự < > trong exception
     msg = "\n".join(
         [
-            f"⚠️ IR Monitor — {len(errors)} nguồn lỗi",
+            title,
             now(),
             "-" * 28,
             "",
@@ -329,16 +341,28 @@ def send_fetch_errors(errors: dict[str, str]) -> bool:
     if len(msg) > TELEGRAM_MAX_LEN:
         msg = msg[: TELEGRAM_MAX_LEN - 3] + "…"
 
-    print(f"\n⚠️  {len(errors)} nguồn lỗi — gửi Telegram...")
+    print(f"\n⚠️  {len(issues)} nguồn có vấn đề — gửi Telegram...")
     return send_telegram(msg, html=False)
 
 
-def notify_fetch_errors(errors: dict[str, str]) -> None:
-    """Báo lỗi fetch ngay sau khi quét xong — không để crash sau chặn thông báo."""
-    if not errors:
+def _suspect_empty_fetch(sid: str, items: list[dict] | None, known: dict[str, set[str]]) -> str | None:
+    """Nguồn từng có tin nhưng lần này trả 0 — có thể bị chặn im lặng."""
+    if items is None or items:
+        return None
+    if len(known.get(sid, set())) < 1:
+        return None
+    return "Trả về 0 tin (có thể bị chặn hoặc đổi cấu trúc trang)"
+
+
+def notify_fetch_errors(
+    errors: dict[str, str],
+    warnings: dict[str, str] | None = None,
+) -> None:
+    """Báo lỗi/cảnh báo fetch ngay sau khi quét xong."""
+    if not errors and not warnings:
         return
     try:
-        send_fetch_errors(errors)
+        send_fetch_errors(errors, warnings)
     except Exception as e:
         print(f"  ❌ Không gửi được Telegram lỗi fetch: {e}")
 
@@ -362,7 +386,15 @@ def main():
     total_new = 0
 
     fetch_results, fetch_errors = fetch_all_sources()
-    notify_fetch_errors(fetch_errors)
+    fetch_warnings: dict[str, str] = {}
+    for source in SOURCES:
+        sid = source["id"]
+        if sid in fetch_errors:
+            continue
+        warn = _suspect_empty_fetch(sid, fetch_results.get(sid), known)
+        if warn:
+            fetch_warnings[sid] = warn
+    notify_fetch_errors(fetch_errors, fetch_warnings)
 
     for source in SOURCES:
         sid = source["id"]
@@ -421,10 +453,10 @@ def main():
             f"Theo dõi {len(SOURCES)} nguồn (tin {RECENT_DAYS} ngày gần nhất):\n\n{summary}\n\n"
             "Sẽ thông báo khi có tin mới. 🚀"
         )
-    elif total_new == 0 and not fetch_errors:
+    elif total_new == 0 and not fetch_errors and not fetch_warnings:
         print("✅ Không có tin mới.")
     elif total_new == 0:
-        print("✅ Không có tin mới (có nguồn lỗi — đã thông báo Telegram).")
+        print("✅ Không có tin mới (có nguồn lỗi/cảnh báo — đã thông báo Telegram).")
     else:
         print(f"\n✅ Đã gửi {total_new} tin mới.")
 
