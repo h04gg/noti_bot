@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import json
 import time
+import re
 import importlib
 import requests
 from html import escape
@@ -159,7 +160,7 @@ TELEGRAM_MAX_LEN = 3800  # Giới hạn Telegram 4096 ký tự
 TELEGRAM_MAX_ITEMS = 15  # Tối đa tin liệt kê khi có quá nhiều tin mới
 
 
-def send_telegram(message: str) -> bool:
+def send_telegram(message: str, *, html: bool = True) -> bool:
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("⚠️  Thiếu TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID.")
         return False
@@ -168,15 +169,19 @@ def send_telegram(message: str) -> bool:
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False,
+        "disable_web_page_preview": True,
     }
+    if html:
+        payload["parse_mode"] = "HTML"
     try:
         resp = requests.post(url, json=payload, timeout=15)
         if resp.ok:
             print("  ✅ Đã gửi Telegram.")
             return True
         print(f"  ❌ Lỗi Telegram: {resp.status_code} {resp.text[:200]}")
+        if html:
+            print("  ↪️  Thử lại không dùng HTML...")
+            return send_telegram(message, html=False)
         return False
     except Exception as e:
         print(f"  ❌ Telegram exception: {e}")
@@ -262,8 +267,23 @@ def send_new_items(source: dict, new_items: list[dict]) -> bool:
     return ok
 
 
+def _short_fetch_error(err: str) -> str:
+    """Rút gọn exception dài — tránh vỡ HTML Telegram."""
+    s = re.sub(r"<[^>]+>", "", str(err)).strip()
+    low = s.lower()
+    if "connecttimeouterror" in low or "timed out" in low:
+        return "Kết nối timeout"
+    if "403" in s or "forbidden" in low:
+        return "HTTP 403 Forbidden"
+    if "max retries exceeded" in low:
+        return "Kết nối thất bại (max retries)"
+    if "cloudflare" in low:
+        return "Cloudflare chặn truy cập"
+    return s[:120] + ("…" if len(s) > 120 else "")
+
+
 def _format_fetch_errors(errors: dict[str, str]) -> list[str]:
-    """Nhóm lỗi fetch theo category để gửi Telegram."""
+    """Nhóm lỗi fetch theo category (plain text)."""
     by_cat: dict[str, list[str]] = {}
     source_by_id = {s["id"]: s for s in SOURCES}
 
@@ -272,17 +292,14 @@ def _format_fetch_errors(errors: dict[str, str]) -> list[str]:
         if not source:
             continue
         cat_id = source.get("category", "other")
-        line = (
-            f"  {source['emoji']} <b>{escape(source['name'])}</b>: "
-            f"<i>{escape(err[:200])}</i>"
-        )
+        line = f"  {source['emoji']} {source['name']}: {_short_fetch_error(err)}"
         by_cat.setdefault(cat_id, []).append(line)
 
     blocks: list[str] = []
     for category_key, cat in CATEGORIES.items():
         if category_key not in by_cat:
             continue
-        lines = [f"{cat['emoji']} <b>{cat['name']}</b>"]
+        lines = [f"{cat['emoji']} {cat['name']}"]
         lines.extend(by_cat[category_key])
         blocks.append("\n".join(lines))
     return blocks
@@ -296,22 +313,24 @@ def send_fetch_errors(errors: dict[str, str]) -> bool:
     if not blocks:
         return True
 
-    header = (
-        f"⚠️ <b>IR Monitor — {len(errors)} nguồn lỗi</b>\n"
-        f"<i>{escape(now())}</i>\n"
-        "─" * 28 + "\n\n"
+    # Plain text — tránh parse HTML vỡ vì ký tự < > trong exception
+    msg = "\n".join(
+        [
+            f"⚠️ IR Monitor — {len(errors)} nguồn lỗi",
+            now(),
+            "-" * 28,
+            "",
+            *blocks,
+            "",
+            "State nguồn lỗi được giữ nguyên — sẽ thử lại lần chạy sau.",
+        ]
     )
-    body = "\n\n".join(blocks)
-    footer = (
-        "\n\n<i>State nguồn lỗi được giữ nguyên — sẽ thử lại lần chạy sau.</i>"
-    )
-    msg = header + body + footer
 
     if len(msg) > TELEGRAM_MAX_LEN:
-        msg = msg[: TELEGRAM_MAX_LEN - 20] + "\n\n<i>…</i>"
+        msg = msg[: TELEGRAM_MAX_LEN - 3] + "…"
 
     print(f"\n⚠️  {len(errors)} nguồn lỗi — gửi Telegram...")
-    return send_telegram(msg)
+    return send_telegram(msg, html=False)
 
 
 def notify_fetch_errors(errors: dict[str, str]) -> None:
