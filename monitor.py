@@ -271,6 +271,7 @@ def _format_fetch_errors(errors: dict[str, str]) -> list[str]:
         source = source_by_id.get(sid)
         if not source:
             continue
+        cat_id = source.get("category", "other")
         line = (
             f"  {source['emoji']} <b>{escape(source['name'])}</b>: "
             f"<i>{escape(err[:200])}</i>"
@@ -313,6 +314,16 @@ def send_fetch_errors(errors: dict[str, str]) -> bool:
     return send_telegram(msg)
 
 
+def notify_fetch_errors(errors: dict[str, str]) -> None:
+    """Báo lỗi fetch ngay sau khi quét xong — không để crash sau chặn thông báo."""
+    if not errors:
+        return
+    try:
+        send_fetch_errors(errors)
+    except Exception as e:
+        print(f"  ❌ Không gửi được Telegram lỗi fetch: {e}")
+
+
 def now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -332,6 +343,7 @@ def main():
     total_new = 0
 
     fetch_results, fetch_errors = fetch_all_sources()
+    notify_fetch_errors(fetch_errors)
 
     for source in SOURCES:
         sid = source["id"]
@@ -390,17 +402,12 @@ def main():
             f"Theo dõi {len(SOURCES)} nguồn (tin {RECENT_DAYS} ngày gần nhất):\n\n{summary}\n\n"
             "Sẽ thông báo khi có tin mới. 🚀"
         )
-        if fetch_errors:
-            send_fetch_errors(fetch_errors)
+    elif total_new == 0 and not fetch_errors:
+        print("✅ Không có tin mới.")
+    elif total_new == 0:
+        print("✅ Không có tin mới (có nguồn lỗi — đã thông báo Telegram).")
     else:
-        if fetch_errors:
-            send_fetch_errors(fetch_errors)
-        if total_new == 0 and not fetch_errors:
-            print("✅ Không có tin mới.")
-        elif total_new == 0:
-            print("✅ Không có tin mới (có nguồn lỗi — đã thông báo Telegram).")
-        else:
-            print(f"\n✅ Đã gửi {total_new} tin mới.")
+        print(f"\n✅ Đã gửi {total_new} tin mới.")
 
     print(f"\nHoàn thành — {now()}")
 
