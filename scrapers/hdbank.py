@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 from datetime import datetime
 
@@ -22,16 +23,74 @@ from scrapers._common import extract_dmY, format_dmY, make_item
 
 BASE = "https://hdbank.com.vn"
 API_BASE = f"{BASE}/api"
-_AES_KEY = b"Z9GRKIgYKH2CUdqfas858Q=="
+# Fallback nếu không lấy được từ FE / env
+_DEFAULT_AES_KEY = b"Z9GRKIgYKH2CUdqfas858Q=="
+_AES_KEY_RE = re.compile(
+    r'enc\.Utf8\.parse\("([A-Za-z0-9+/=]+)"\)[\s\S]{0,120}?AES\.decrypt',
+)
 _FILENAME_DATE_RE = re.compile(r"(20\d{2})(\d{2})(\d{2})")
+_cached_aes_key: bytes | None = None
 
 
-def _decrypt_payload(raw: str) -> dict | list:
+def _key_from_env() -> bytes | None:
+    raw = (os.environ.get("HDBANK_AES_KEY") or "").strip()
+    if not raw:
+        return None
+    # CryptoJS Utf8.parse — dùng chuỗi UTF-8 literal, không base64-decode
+    return raw.encode("utf-8")
+
+
+def _key_from_fe(session: requests.Session, page_url: str) -> bytes | None:
+    """Lấy key từ bundle Next.js (_app-*.js) — cùng nguồn FE dùng khi decrypt."""
+    try:
+        resp = session.get(page_url, timeout=30)
+        resp.raise_for_status()
+        html = resp.text
+    except Exception as e:
+        print(f"    HDBank FE page: {e}")
+        return None
+
+    scripts = re.findall(r'src="(/_next/static/chunks/[^"]+\.js)"', html)
+    # Ưu tiên _app chunk (thường chứa crypto helper)
+    scripts.sort(key=lambda s: (0 if "/_app-" in s else 1, s))
+
+    for path in scripts:
+        try:
+            js = session.get(f"{BASE}{path}", timeout=25).text
+        except Exception:
+            continue
+        match = _AES_KEY_RE.search(js)
+        if match:
+            return match.group(1).encode("utf-8")
+
+    return None
+
+
+def _resolve_aes_key(session: requests.Session, page_url: str) -> bytes:
+    global _cached_aes_key
+    if _cached_aes_key is not None:
+        return _cached_aes_key
+
+    for resolver in (
+        lambda: _key_from_env(),
+        lambda: _key_from_fe(session, page_url),
+        lambda: _DEFAULT_AES_KEY,
+    ):
+        key = resolver()
+        if key:
+            _cached_aes_key = key
+            return key
+
+    _cached_aes_key = _DEFAULT_AES_KEY
+    return _cached_aes_key
+
+
+def _decrypt_payload(raw: str, key: bytes) -> dict | list:
     text = raw.strip()
     pad = (-len(text)) % 4
     if pad:
         text += "=" * pad
-    plain = unpad(AES.new(_AES_KEY, AES.MODE_ECB).decrypt(base64.b64decode(text)), 16)
+    plain = unpad(AES.new(key, AES.MODE_ECB).decrypt(base64.b64decode(text)), 16)
     return json.loads(plain.decode("utf-8"))
 
 
@@ -85,7 +144,8 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
     try:
         resp = session.get(f"{API_BASE}{api_path}", timeout=30)
         resp.raise_for_status()
-        payload = _decrypt_payload(resp.text)
+        aes_key = _resolve_aes_key(session, page_url)
+        payload = _decrypt_payload(resp.text, aes_key)
     except Exception as e:
         print(f"    HDBank API: {e}")
         return []

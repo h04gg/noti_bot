@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 import requests
@@ -12,9 +13,20 @@ from scrapers._common import date_from_iso, make_item
 BASE = "https://www.mbbank.com.vn"
 
 
+def _page_url(source: dict, year: int) -> str:
+    """URL trang investor — thay /YYYY/ trong config bằng năm hiện tại."""
+    template = source.get(
+        "url",
+        f"{BASE}/Investor/thong-bao-nha-dau-tu/{{year}}/0//0",
+    )
+    if "{year}" in template:
+        return template.format(year=year)
+    return re.sub(r"/Investor/thong-bao-nha-dau-tu/\d{4}/", f"/Investor/thong-bao-nha-dau-tu/{year}/", template)
+
+
 def fetch(source: dict, session: requests.Session) -> list[dict]:
-    page_url = source.get("url", f"{BASE}/Investor/thong-bao-nha-dau-tu/2026/0//0")
-    year = str(datetime.now().year)
+    year = datetime.now().year
+    page_url = _page_url(source, year)
 
     try:
         resp = session.get(page_url, timeout=25, verify=False)

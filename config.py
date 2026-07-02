@@ -201,7 +201,8 @@ SOURCES = [
         "url": "https://www.vpbank.com.vn/uiux-api/api/document",
         "params": {
             "lang": "vi",
-            "categoryPath": "/quan-he-nha-dau-tu/cong-bo-thong-tin-khac/2026",
+            # Scraper tự thay /YYYY cuối path bằng năm hiện tại
+            "categoryPath": "/quan-he-nha-dau-tu/cong-bo-thong-tin-khac/2020",
             "pageSize": 10,
             "pageIndex": 1,
         },
@@ -220,8 +221,8 @@ SOURCES = [
         "name": "MBBank (MBB)",
         "emoji": "🪖",
         "category": "bank",
-        "url": "https://www.mbbank.com.vn/Investor/thong-bao-nha-dau-tu/2026/0//0",
-        "source_page": "https://www.mbbank.com.vn/Investor/thong-bao-nha-dau-tu/2026/0//0",
+        "url": "https://www.mbbank.com.vn/Investor/thong-bao-nha-dau-tu/{year}/0//0",
+        "source_page": "https://www.mbbank.com.vn/Investor/thong-bao-nha-dau-tu",
     },
     {
         "id": "hdbank",
@@ -255,7 +256,6 @@ SOURCES = [
         "api_url": "https://acb.com.vn/api/front/v1/posts",
         "params": {
             "category_id": 656,
-            "session_tags": 4904,
             "limit": 20,
         },
         "source_page": "https://acb.com.vn/nha-dau-tu",

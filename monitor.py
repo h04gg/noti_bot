@@ -9,6 +9,7 @@ import json
 import time
 import importlib
 import requests
+from html import escape
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -50,12 +51,14 @@ FETCH_RETRY_DELAY = 3  # giây
 
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
-def fetch_source(source: dict, session: requests.Session) -> list[dict] | None:
+def fetch_source(source: dict, session: requests.Session) -> tuple[list[dict] | None, str | None]:
+    """Trả về (items, error). items=None nghĩa là fetch thất bại sau retry."""
     sid = source["id"]
     scraper = SCRAPER_MAP.get(sid)
     if not scraper:
-        print(f"  ⚠️  [{sid}] Không có scraper")
-        return []
+        msg = "Không có scraper"
+        print(f"  ⚠️  [{sid}] {msg}")
+        return None, msg
 
     print(f"  📡 [{sid}] Fetching...")
     last_error: Exception | None = None
@@ -66,7 +69,7 @@ def fetch_source(source: dict, session: requests.Session) -> list[dict] | None:
                 print(f"  ✅ [{sid}] {len(items)} items (sau {attempt} lần thử)")
             else:
                 print(f"  ✅ [{sid}] {len(items)} items")
-            return items
+            return items, None
         except Exception as e:
             last_error = e
             if attempt < FETCH_RETRIES:
@@ -77,26 +80,32 @@ def fetch_source(source: dict, session: requests.Session) -> list[dict] | None:
                 time.sleep(FETCH_RETRY_DELAY)
             else:
                 print(f"  ❌ [{sid}] Lỗi sau {FETCH_RETRIES} lần: {e}")
-    return None
+    err = str(last_error) if last_error else "Lỗi không xác định"
+    return None, err
 
 
-def fetch_all_sources() -> dict[str, list[dict] | None]:
-    """Fetch tất cả nguồn song song (mỗi thread dùng session riêng)."""
+def fetch_all_sources() -> tuple[dict[str, list[dict] | None], dict[str, str]]:
+    """Fetch tất cả nguồn song song. Trả về (kết quả, lỗi theo source id)."""
     results: dict[str, list[dict] | None] = {}
+    errors: dict[str, str] = {}
 
-    def _fetch_one(source: dict) -> tuple[str, list[dict] | None]:
+    def _fetch_one(source: dict) -> tuple[str, list[dict] | None, str | None]:
         session = requests.Session()
         session.headers.update(HEADERS)
-        return source["id"], fetch_source(source, session)
+        sid = source["id"]
+        items, error = fetch_source(source, session)
+        return sid, items, error
 
     print(f"📡 Fetching {len(SOURCES)} nguồn song song (workers={FETCH_WORKERS})...\n")
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
         futures = [executor.submit(_fetch_one, source) for source in SOURCES]
         for future in as_completed(futures):
-            sid, items = future.result()
+            sid, items, error = future.result()
             results[sid] = items
+            if error:
+                errors[sid] = error
 
-    return results
+    return results, errors
 
 
 # ── State management ───────────────────────────────────────────────────────────
@@ -253,6 +262,57 @@ def send_new_items(source: dict, new_items: list[dict]) -> bool:
     return ok
 
 
+def _format_fetch_errors(errors: dict[str, str]) -> list[str]:
+    """Nhóm lỗi fetch theo category để gửi Telegram."""
+    by_cat: dict[str, list[str]] = {}
+    source_by_id = {s["id"]: s for s in SOURCES}
+
+    for sid, err in errors.items():
+        source = source_by_id.get(sid)
+        if not source:
+            continue
+        line = (
+            f"  {source['emoji']} <b>{escape(source['name'])}</b>: "
+            f"<i>{escape(err[:200])}</i>"
+        )
+        by_cat.setdefault(cat_id, []).append(line)
+
+    blocks: list[str] = []
+    for cat_id, cat in CATEGORIES.items():
+        if cat_id not in by_cat:
+            continue
+        lines = [f"{cat['emoji']} <b>{cat['name']}</b>"]
+        lines.extend(by_cat[cat_id])
+        blocks.append("\n".join(lines))
+    return blocks
+
+
+def send_fetch_errors(errors: dict[str, str]) -> bool:
+    if not errors:
+        return True
+
+    blocks = _format_fetch_errors(errors)
+    if not blocks:
+        return True
+
+    header = (
+        f"⚠️ <b>IR Monitor — {len(errors)} nguồn lỗi</b>\n"
+        f"<i>{escape(now())}</i>\n"
+        "─" * 28 + "\n\n"
+    )
+    body = "\n\n".join(blocks)
+    footer = (
+        "\n\n<i>State nguồn lỗi được giữ nguyên — sẽ thử lại lần chạy sau.</i>"
+    )
+    msg = header + body + footer
+
+    if len(msg) > TELEGRAM_MAX_LEN:
+        msg = msg[: TELEGRAM_MAX_LEN - 20] + "\n\n<i>…</i>"
+
+    print(f"\n⚠️  {len(errors)} nguồn lỗi — gửi Telegram...")
+    return send_telegram(msg)
+
+
 def now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -271,7 +331,7 @@ def main():
     current_all: dict[str, list[dict]] = {}
     total_new = 0
 
-    fetch_results = fetch_all_sources()
+    fetch_results, fetch_errors = fetch_all_sources()
 
     for source in SOURCES:
         sid = source["id"]
@@ -330,10 +390,17 @@ def main():
             f"Theo dõi {len(SOURCES)} nguồn (tin {RECENT_DAYS} ngày gần nhất):\n\n{summary}\n\n"
             "Sẽ thông báo khi có tin mới. 🚀"
         )
-    elif total_new == 0:
-        print("✅ Không có tin mới.")
+        if fetch_errors:
+            send_fetch_errors(fetch_errors)
     else:
-        print(f"\n✅ Đã gửi {total_new} tin mới.")
+        if fetch_errors:
+            send_fetch_errors(fetch_errors)
+        if total_new == 0 and not fetch_errors:
+            print("✅ Không có tin mới.")
+        elif total_new == 0:
+            print("✅ Không có tin mới (có nguồn lỗi — đã thông báo Telegram).")
+        else:
+            print(f"\n✅ Đã gửi {total_new} tin mới.")
 
     print(f"\nHoàn thành — {now()}")
 

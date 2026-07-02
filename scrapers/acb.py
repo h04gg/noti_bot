@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import requests
 
 from config import RECENT_DAYS
@@ -10,6 +12,7 @@ from scrapers._common import date_from_iso, make_item
 
 BASE = "https://acb.com.vn"
 API_URL = f"{BASE}/api/front/v1/posts"
+TAGS_URL = f"{BASE}/api/front/v1/tags"
 PAGE_URL = f"{BASE}/nha-dau-tu"
 
 
@@ -30,7 +33,25 @@ def _doc_date(doc: dict) -> str:
     return date_from_iso(doc.get("created_at") or "")
 
 
-def _search_params(source: dict, page: int) -> dict:
+def _resolve_session_tag(session: requests.Session, year: int) -> int | None:
+    """Tag năm trên ACB (title = '2026', …) — lấy từ /api/front/v1/tags."""
+    try:
+        resp = session.get(TAGS_URL, params={"limit": 100}, timeout=20)
+        resp.raise_for_status()
+        tags = resp.json().get("data") or []
+    except Exception as e:
+        print(f"    ACB tags API: {e}")
+        return None
+
+    year_label = str(year)
+    for tag in tags:
+        if str(tag.get("title", "")).strip() == year_label:
+            return int(tag["id"])
+    print(f"    ACB: chưa có tag năm {year_label}, bỏ lọc session_tags")
+    return None
+
+
+def _search_params(source: dict, page: int, session_tag: int | None) -> dict:
     cfg = source.get("params", {})
     params = {
         "search[categories.category_id:in]": str(cfg.get("category_id", 656)),
@@ -38,8 +59,7 @@ def _search_params(source: dict, page: int) -> dict:
         "page": page,
         "limit": int(cfg.get("limit", 20)),
     }
-    session_tag = cfg.get("session_tags")
-    if session_tag:
+    if session_tag is not None:
         params["search[session_tags::tags:in]"] = str(session_tag)
     return params
 
@@ -53,6 +73,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
     session.headers.setdefault("X-Requested-Store", "default")
     session.headers.setdefault("X-Requested-With", "XMLHttpRequest")
 
+    session_tag = _resolve_session_tag(session, datetime.now().year)
     items: list[dict] = []
     seen_uids: set[str] = set()
     page = 1
@@ -61,7 +82,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         try:
             resp = session.get(
                 api_url,
-                params=_search_params(source, page),
+                params=_search_params(source, page, session_tag),
                 timeout=25,
             )
             resp.raise_for_status()
