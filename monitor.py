@@ -279,11 +279,11 @@ def _format_fetch_errors(errors: dict[str, str]) -> list[str]:
         by_cat.setdefault(cat_id, []).append(line)
 
     blocks: list[str] = []
-    for cat_id, cat in CATEGORIES.items():
-        if cat_id not in by_cat:
+    for category_key, cat in CATEGORIES.items():
+        if category_key not in by_cat:
             continue
         lines = [f"{cat['emoji']} <b>{cat['name']}</b>"]
-        lines.extend(by_cat[cat_id])
+        lines.extend(by_cat[category_key])
         blocks.append("\n".join(lines))
     return blocks
 

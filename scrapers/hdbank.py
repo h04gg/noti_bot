@@ -66,32 +66,39 @@ def _key_from_fe(session: requests.Session, page_url: str) -> bytes | None:
     return None
 
 
-def _resolve_aes_key(session: requests.Session, page_url: str) -> bytes:
-    global _cached_aes_key
-    if _cached_aes_key is not None:
-        return _cached_aes_key
-
-    for resolver in (
-        lambda: _key_from_env(),
-        lambda: _key_from_fe(session, page_url),
-        lambda: _DEFAULT_AES_KEY,
-    ):
-        key = resolver()
-        if key:
-            _cached_aes_key = key
-            return key
-
-    _cached_aes_key = _DEFAULT_AES_KEY
-    return _cached_aes_key
+def _is_valid_aes_key(key: bytes) -> bool:
+    try:
+        key.decode("ascii")
+    except UnicodeDecodeError:
+        return False
+    return 0 < len(key) <= 32
 
 
 def _decrypt_payload(raw: str, key: bytes) -> dict | list:
+    if not _is_valid_aes_key(key):
+        raise ValueError("AES key không hợp lệ (cần ASCII)")
     text = raw.strip()
     pad = (-len(text)) % 4
     if pad:
         text += "=" * pad
     plain = unpad(AES.new(key, AES.MODE_ECB).decrypt(base64.b64decode(text)), 16)
     return json.loads(plain.decode("utf-8"))
+
+
+def _aes_key_candidates(session: requests.Session, page_url: str) -> list[bytes]:
+    candidates: list[bytes] = []
+    seen: set[bytes] = set()
+
+    def _add(key: bytes | None) -> None:
+        if not key or not _is_valid_aes_key(key) or key in seen:
+            return
+        seen.add(key)
+        candidates.append(key)
+
+    _add(_key_from_env())
+    _add(_DEFAULT_AES_KEY)
+    _add(_key_from_fe(session, page_url))
+    return candidates
 
 
 def _date_from_link(link: str, title: str) -> str:
@@ -144,8 +151,19 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
     try:
         resp = session.get(f"{API_BASE}{api_path}", timeout=30)
         resp.raise_for_status()
-        aes_key = _resolve_aes_key(session, page_url)
-        payload = _decrypt_payload(resp.text, aes_key)
+        raw = resp.text
+        payload = None
+        last_error: Exception | None = None
+        for key in _aes_key_candidates(session, page_url):
+            try:
+                payload = _decrypt_payload(raw, key)
+                global _cached_aes_key
+                _cached_aes_key = key
+                break
+            except Exception as e:
+                last_error = e
+        if payload is None:
+            raise last_error or RuntimeError("HDBank decrypt thất bại")
     except Exception as e:
         print(f"    HDBank API: {e}")
         return []
