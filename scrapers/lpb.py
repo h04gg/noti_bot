@@ -1,68 +1,113 @@
-"""Scraper: LPBank (LPB) — API content-service."""
+"""Scraper: LPBank (LPB) — API findAllInvestor."""
 
 from __future__ import annotations
 
 import requests
+from bs4 import BeautifulSoup
 
+from config import RECENT_DAYS
+from filters import parse_item_date, recent_cutoff
 from scrapers._common import date_from_iso, make_item
 
 BASE = "https://lpbank.com.vn"
-API = f"{BASE}/api/content-service/public/findAllPosts"
-CATEGORY = "NHA_ĐAU_TU.CONG_BO_THONG_TIN"
+API_URL = f"{BASE}/api/content-service/public/findAllInvestor"
+CATEGORY = "CONG_BO_THONG_TIN"
+
+
+def _extract_link(doc: dict) -> str:
+    content = doc.get("content") or ""
+    if content:
+        soup = BeautifulSoup(content, "html.parser")
+        for a in soup.select("a[href]"):
+            href = (a.get("href") or "").strip()
+            if not href:
+                continue
+            if href.startswith("//"):
+                return "https:" + href
+            if href.startswith("http"):
+                return href
+            if href.startswith("/"):
+                return BASE + href
+
+    doc_id = doc.get("id")
+    if doc_id is None:
+        return ""
+    return f"{BASE}/nha-dau-tu/cong-bo-thong-tin/{doc_id}"
+
+
+def _doc_date(doc: dict) -> str:
+    # Ưu tiên ngày CBTT, tránh dùng updatedDate để không báo lại tin cũ
+    for key in ("startDate", "createdDate"):
+        raw = doc.get(key)
+        if raw:
+            date = date_from_iso(str(raw))
+            if date:
+                return date
+    return ""
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
-    page_url = source.get("url", f"{BASE}/nha-dau-tu/cong-bo-thong-tin")
+    page_url = source.get("source_page", f"{BASE}/nha-dau-tu/cong-bo-thong-tin")
     session.headers.setdefault("Origin", BASE)
     session.headers.setdefault("Referer", page_url)
     session.headers.setdefault("Accept", "application/json, text/plain, */*")
     session.headers.setdefault("Content-Type", "application/json")
 
-    try:
-        session.get(page_url, timeout=25, verify=False)
-    except Exception as e:
-        print(f"    LPB HTML: {e}")
-
     items: list[dict] = []
-    seen: set[str] = set()
+    seen_uids: set[str] = set()
     page = 0
+    page_size = 20
 
-    while page < 5:
+    while True:
         try:
             resp = session.post(
-                API,
-                json={"postCategoryCode": CATEGORY, "page": page, "size": 50},
+                API_URL,
+                json={
+                    "title": None,
+                    "category": CATEGORY,
+                    "subCategory": None,
+                    "year": "",
+                    "otherYear": None,
+                    "page": page,
+                    "size": page_size,
+                    "sortCustoms": [
+                        {"sortAsc": False, "nullsFirst": False, "sortField": "updatedDate"},
+                        {"sortAsc": False, "nullsFirst": False, "sortField": "startDate"},
+                        {"sortAsc": False, "nullsFirst": False, "sortField": "postNow"},
+                    ],
+                },
                 timeout=25,
-                verify=False,
             )
             resp.raise_for_status()
-            payload = resp.json()
+            data = resp.json().get("data") or {}
         except Exception as e:
             print(f"    LPB API page {page}: {e}")
             break
 
-        content = (payload.get("data") or {}).get("content") or []
-        if not content:
+        docs = data.get("content") or []
+        if not docs:
             break
 
-        for doc in content:
+        page_items: list[dict] = []
+        for doc in docs:
             title = (doc.get("title") or "").strip()
-            doc_id = doc.get("id")
-            slug = doc.get("slug") or doc.get("titleSeo") or ""
-            if not title or not doc_id:
+            link = _extract_link(doc)
+            if not title or not link:
                 continue
-            link = f"{BASE}/nha-dau-tu/cong-bo-thong-tin/chi-tiet/{doc_id}"
-            if slug:
-                link = f"{BASE}/nha-dau-tu/cong-bo-thong-tin/{slug}"
-            if link in seen:
+            item = make_item(title, link, _doc_date(doc))
+            if item["uid"] in seen_uids:
                 continue
-            seen.add(link)
-            date = date_from_iso(
-                doc.get("publishDate") or doc.get("createdDate") or doc.get("approvedDate") or ""
-            )
-            items.append(make_item(title, link, date))
+            seen_uids.add(item["uid"])
+            page_items.append(item)
 
-        if (payload.get("data") or {}).get("last", True):
+        items.extend(page_items)
+
+        dates = [parse_item_date(item.get("date", "")) for item in page_items]
+        dates = [dt for dt in dates if dt is not None]
+        if dates and min(dates) < recent_cutoff(RECENT_DAYS):
+            break
+
+        if data.get("last", True):
             break
         page += 1
 
