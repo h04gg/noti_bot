@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import time
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
@@ -10,7 +12,26 @@ from curl_cffi import requests as curl_requests
 from scrapers._common import format_dmY, make_item, paginate_until_recent
 
 PAGE_URL = "https://vinhomes.vn/vi/cong-bo-thong-tin"
-IMPERSONATE = "chrome120"
+HOME_URL = "https://vinhomes.vn/vi"
+# Thử nhiều fingerprint — IP GHA đôi khi chặn một số profile
+IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
+FETCH_RETRIES = 3
+RETRY_DELAY = 3
+
+
+def _proxy() -> dict[str, str] | None:
+    """Proxy tùy chọn (residential) — set VHM_HTTP_PROXY hoặc HTTP_PROXY trên GHA."""
+    raw = (os.environ.get("VHM_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
+    if not raw:
+        return None
+    return {"http": raw, "https": raw}
+
+
+def _is_cloudflare_block(status_code: int, html: str) -> bool:
+    if status_code == 403:
+        return True
+    low = (html or "").lower()
+    return "just a moment" in low or "challenge-platform" in low
 
 
 def _parse_date(raw: str) -> str:
@@ -39,19 +60,64 @@ def _parse_html(html: str) -> list[dict]:
     return items
 
 
+def _warm_session(session: curl_requests.Session) -> None:
+    """Lấy cookie Cloudflare từ trang chủ trước khi vào CBTT."""
+    try:
+        session.get(HOME_URL, timeout=25)
+    except Exception as e:
+        print(f"    VHM warmup: {e}")
+
+
+def _fetch_url(url: str) -> tuple[int, str]:
+    """GET với session + retry nhiều browser profile."""
+    proxies = _proxy()
+    last_error: Exception | None = None
+
+    for attempt in range(1, FETCH_RETRIES + 1):
+        profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
+        session = curl_requests.Session(impersonate=profile)
+        try:
+            _warm_session(session)
+            resp = session.get(url, timeout=30, proxies=proxies)
+            if _is_cloudflare_block(resp.status_code, resp.text):
+                raise RuntimeError(f"HTTP {resp.status_code} (Cloudflare chặn)")
+            resp.raise_for_status()
+            return resp.status_code, resp.text
+        except Exception as e:
+            last_error = e
+            if attempt < FETCH_RETRIES:
+                print(
+                    f"    VHM {profile} lần {attempt}/{FETCH_RETRIES}: {e}"
+                    f" — thử lại sau {RETRY_DELAY}s"
+                )
+                time.sleep(RETRY_DELAY)
+        finally:
+            session.close()
+
+    raise RuntimeError(f"VHM fetch thất bại: {last_error}") from last_error
+
+
 def fetch(source: dict, session) -> list[dict]:
     base_url = source.get("url", PAGE_URL)
+    blocked_on_first_page = False
 
     def _page(page: int) -> list[dict]:
-        # Drupal views: trang đầu là ?page=0 (URL gốc không trả danh sách)
+        nonlocal blocked_on_first_page
         page_index = page - 1
         url = f"{base_url.rstrip('/')}?page={page_index}"
         try:
-            resp = curl_requests.get(url, impersonate=IMPERSONATE, timeout=30)
-            resp.raise_for_status()
+            _, html = _fetch_url(url)
         except Exception as e:
             print(f"    VHM page {page}: {e}")
+            if page == 1:
+                blocked_on_first_page = True
+                raise RuntimeError(str(e)) from e
             return []
-        return _parse_html(resp.text)
+        return _parse_html(html)
 
-    return paginate_until_recent(_page)
+    try:
+        return paginate_until_recent(_page)
+    except RuntimeError:
+        if blocked_on_first_page:
+            raise
+        return []
