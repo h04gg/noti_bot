@@ -1,17 +1,19 @@
-name: IR Monitor — 30 nguồn
+name: IR Monitor — Báo cáo lỗi 12:00
 
 on:
-  workflow_dispatch:   # Trigger bởi cron-job.org (không dùng schedule GHA)
+  schedule:
+    # 12:00 trưa UTC+7 (Asia/Ho_Chi_Minh) = 05:00 UTC
+    - cron: "0 5 * * *"
+  workflow_dispatch:
 
-# Hủy lần chạy cũ nếu trigger trùng — tránh 2 job cùng đọc state cũ → gửi trùng
 concurrency:
-  group: ir-monitor
-  cancel-in-progress: true
+  group: ir-monitor-digest
+  cancel-in-progress: false
 
 jobs:
-  monitor:
+  digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repo
@@ -31,16 +33,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Key theo nội dung file: GHA không ghi đè cache khi key trùng — key cố định
-      # khiến save bị skip sau lần đầu → state không lưu → spam tin mới mỗi lần chạy.
-      - name: Restore IR state
-        uses: actions/cache/restore@v4
-        with:
-          path: ir_state.json
-          key: ir-monitor-state-${{ hashFiles('ir_state.json') }}
-          restore-keys: |
-            ir-monitor-state-
-
       - name: Restore error log
         uses: actions/cache/restore@v4
         with:
@@ -49,11 +41,11 @@ jobs:
           restore-keys: |
             ir-error-log-
 
-      - name: Run monitor
+      - name: Send daily error digest
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python monitor.py
+        run: python monitor.py --daily-digest
 
       - name: Save error log
         if: always()
@@ -61,10 +53,3 @@ jobs:
         with:
           path: ir_error_log.json
           key: ir-error-log-${{ hashFiles('ir_error_log.json') }}
-
-      - name: Save IR state
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ir_state.json
-          key: ir-monitor-state-${{ hashFiles('ir_state.json') }}

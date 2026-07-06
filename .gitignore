@@ -1,4 +1,5 @@
 ir_state.json
+ir_error_log.json
 __pycache__/
 *.pyc
 .env

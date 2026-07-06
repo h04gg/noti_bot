@@ -7,7 +7,6 @@ from __future__ import annotations
 import os
 import json
 import time
-import re
 import importlib
 import requests
 from html import escape
@@ -16,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import SOURCES, CATEGORIES, RECENT_DAYS
 from filters import filter_recent_items
+from fetch_error_log import record_fetch_issues, run_daily_digest, now_vn_str
 from scrapers._common import is_known_item
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
@@ -267,84 +267,6 @@ def send_new_items(source: dict, new_items: list[dict]) -> bool:
     return ok
 
 
-def _short_fetch_error(err: str) -> str:
-    """Rút gọn exception dài — tránh vỡ HTML Telegram."""
-    s = re.sub(r"<[^>]+>", "", str(err)).strip()
-    low = s.lower()
-    if "connecttimeouterror" in low or "timed out" in low:
-        return "Kết nối timeout"
-    if "403" in s or "forbidden" in low:
-        return "HTTP 403 Forbidden"
-    if "max retries exceeded" in low:
-        return "Kết nối thất bại (max retries)"
-    if "cloudflare" in low:
-        return "Cloudflare chặn truy cập"
-    return s[:120] + ("…" if len(s) > 120 else "")
-
-
-def _format_fetch_errors(errors: dict[str, str]) -> list[str]:
-    """Nhóm lỗi fetch theo category (plain text)."""
-    by_cat: dict[str, list[str]] = {}
-    source_by_id = {s["id"]: s for s in SOURCES}
-
-    for sid, err in errors.items():
-        source = source_by_id.get(sid)
-        if not source:
-            continue
-        cat_id = source.get("category", "other")
-        line = f"  {source['emoji']} {source['name']}: {_short_fetch_error(err)}"
-        by_cat.setdefault(cat_id, []).append(line)
-
-    blocks: list[str] = []
-    for category_key, cat in CATEGORIES.items():
-        if category_key not in by_cat:
-            continue
-        lines = [f"{cat['emoji']} {cat['name']}"]
-        lines.extend(by_cat[category_key])
-        blocks.append("\n".join(lines))
-    return blocks
-
-
-def send_fetch_errors(errors: dict[str, str], warnings: dict[str, str] | None = None) -> bool:
-    warnings = warnings or {}
-    issues: dict[str, str] = dict(errors)
-    for sid, msg in warnings.items():
-        if sid not in issues:
-            issues[sid] = msg
-    if not issues:
-        return True
-
-    blocks = _format_fetch_errors(issues)
-    if not blocks:
-        return True
-
-    title_bits: list[str] = []
-    if errors:
-        title_bits.append(f"{len(errors)} lỗi")
-    if warnings:
-        title_bits.append(f"{len(warnings)} cảnh báo")
-    title = "⚠️ IR Monitor — " + ", ".join(title_bits)
-
-    # Plain text — tránh parse HTML vỡ vì ký tự < > trong exception
-    msg = "\n".join(
-        [
-            title,
-            now(),
-            "-" * 28,
-            "",
-            *blocks,
-            "",
-            "State nguồn lỗi được giữ nguyên — sẽ thử lại lần chạy sau.",
-        ]
-    )
-
-    if len(msg) > TELEGRAM_MAX_LEN:
-        msg = msg[: TELEGRAM_MAX_LEN - 3] + "…"
-
-    print(f"\n⚠️  {len(issues)} nguồn có vấn đề — gửi Telegram...")
-    return send_telegram(msg, html=False)
-
-
 def _suspect_empty_fetch(sid: str, items: list[dict] | None, known: dict[str, set[str]]) -> str | None:
     """Nguồn từng có tin nhưng lần này trả 0 — có thể bị chặn im lặng."""
     if items is None or items:
@@ -354,17 +276,27 @@ def _suspect_empty_fetch(sid: str, items: list[dict] | None, known: dict[str, se
     return "Trả về 0 tin (có thể bị chặn hoặc đổi cấu trúc trang)"
 
 
-def notify_fetch_errors(
+def record_fetch_issues_for_run(
     errors: dict[str, str],
     warnings: dict[str, str] | None = None,
+    *,
+    run_id: str | None = None,
 ) -> None:
-    """Báo lỗi/cảnh báo fetch ngay sau khi quét xong."""
-    if not errors and not warnings:
-        return
+    """Ghi lỗi vào log — báo cáo Telegram lúc 12:00 UTC+7."""
     try:
-        send_fetch_errors(errors, warnings)
+        n = record_fetch_issues(errors, warnings, run_id=run_id)
+        if n:
+            print(f"\n📝 Đã ghi {n} lỗi/cảnh báo vào log (báo cáo 12:00 UTC+7).")
     except Exception as e:
-        print(f"  ❌ Không gửi được Telegram lỗi fetch: {e}")
+        print(f"  ❌ Không ghi được error log: {e}")
+
+
+def daily_digest_main() -> None:
+    print(f"\n{'='*55}")
+    print(f"IR Monitor — Báo cáo lỗi hàng ngày — {now()}")
+    print(f"{'='*55}\n")
+    run_daily_digest(send_telegram)
+    print(f"\nHoàn thành — {now()}")
 
 
 def now() -> str:
@@ -394,7 +326,9 @@ def main():
         warn = _suspect_empty_fetch(sid, fetch_results.get(sid), known)
         if warn:
             fetch_warnings[sid] = warn
-    notify_fetch_errors(fetch_errors, fetch_warnings)
+    record_fetch_issues_for_run(
+        fetch_errors, fetch_warnings, run_id=now_vn_str()
+    )
 
     for source in SOURCES:
         sid = source["id"]
@@ -456,7 +390,7 @@ def main():
     elif total_new == 0 and not fetch_errors and not fetch_warnings:
         print("✅ Không có tin mới.")
     elif total_new == 0:
-        print("✅ Không có tin mới (có nguồn lỗi/cảnh báo — đã thông báo Telegram).")
+        print("✅ Không có tin mới (lỗi đã ghi log — báo cáo 12:00 UTC+7).")
     else:
         print(f"\n✅ Đã gửi {total_new} tin mới.")
 
@@ -464,4 +398,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if "--daily-digest" in sys.argv:
+        daily_digest_main()
+    else:
+        main()
