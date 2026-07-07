@@ -154,6 +154,7 @@ SOURCES = [
         "emoji": "📑",
         "category": "securities",
         "url": "https://www.mbs.com.vn/cong-bo-thong-tin/",
+        "bctc_page": "https://www.mbs.com.vn/bao-cao-tai-chinh/",
         "source_page": "https://www.mbs.com.vn/cong-bo-thong-tin/",
     },
     {
