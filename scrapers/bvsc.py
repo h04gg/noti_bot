@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from datetime import datetime
 
@@ -10,8 +11,10 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
 
 from config import RECENT_DAYS
-from filters import filter_recent_items, newest_item_date, recent_cutoff
-from scrapers._common import make_item
+from filters import newest_item_date, recent_cutoff
+from scrapers._common import finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
 
 BASE = "https://www.bvsc.com.vn"
 API_URL = f"{BASE}/getPaginateCBTT_V2"
@@ -21,6 +24,7 @@ IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 BVSC_TIMEOUT = 30
 BVSC_RETRIES = 3
 BVSC_RETRY_DELAY = 3
+LAST_RAW_COUNT = 0
 
 
 def _proxy() -> dict[str, str] | None:
@@ -120,7 +124,7 @@ def fetch(source: dict, session) -> list[dict]:
         seen.add(item["uid"])
         merged.append(item)
 
-    return filter_recent_items(merged)
+    return finalize_fetch(_MOD, merged, filter_recent=True)
 
 
 def _fetch_cbtt(source: dict) -> list[dict]:

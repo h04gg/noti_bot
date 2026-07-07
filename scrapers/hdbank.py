@@ -12,6 +12,7 @@ import base64
 import json
 import os
 import re
+import sys
 from datetime import datetime
 
 import requests
@@ -19,7 +20,10 @@ from bs4 import BeautifulSoup
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
-from scrapers._common import extract_dmY, format_dmY, make_item
+from scrapers._common import extract_dmY, finalize_fetch, format_dmY, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 BASE = "https://hdbank.com.vn"
 API_BASE = f"{BASE}/api"
@@ -133,59 +137,79 @@ def _parse_menu_html(html: str) -> list[dict]:
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
-    api_path = source.get(
-        "api_path",
-        "/vi/investors/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
-    )
-    page_url = source.get(
-        "source_page",
-        f"{BASE}/vi/investor/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
-    )
+    feeds = source.get("feeds") or [
+        {
+            "api_path": source.get(
+                "api_path",
+                "/vi/investors/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
+            ),
+            "page_url": source.get(
+                "source_page",
+                f"{BASE}/vi/investor/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
+            ),
+            "label": "CBTT",
+        }
+    ]
 
-    session.headers.setdefault("Accept", "application/json")
-    session.headers.setdefault("Content-Type", "application/json")
-    session.headers.setdefault("local", "vi")
-    session.headers.setdefault("Origin", BASE)
-    session.headers.setdefault("Referer", page_url)
-
-    try:
-        resp = session.get(f"{API_BASE}{api_path}", timeout=30)
-        resp.raise_for_status()
-        raw = resp.text
-        payload = None
-        last_error: Exception | None = None
-        for key in _aes_key_candidates(session, page_url):
-            try:
-                payload = _decrypt_payload(raw, key)
-                global _cached_aes_key
-                _cached_aes_key = key
-                break
-            except Exception as e:
-                last_error = e
-        if payload is None:
-            raise last_error or RuntimeError("HDBank decrypt thất bại")
-    except Exception as e:
-        print(f"    HDBank API: {e}")
-        return []
-
-    menu = payload.get("menuList") if isinstance(payload, dict) else None
-    if not menu:
-        print("    HDBank: menuList rỗng")
-        return []
-
-    min_year = datetime.now().year - 1
-    items: list[dict] = []
+    merged: list[dict] = []
     seen_uids: set[str] = set()
+    counts: list[str] = []
 
-    for section in menu:
-        year_label = (section.get("name") or "").strip()
-        if year_label.isdigit() and int(year_label) < min_year:
+    for i, feed in enumerate(feeds):
+        api_path = feed["api_path"]
+        page_url = feed.get("page_url", source.get("source_page", ""))
+        label = feed.get("label", "feed")
+
+        session.headers.setdefault("Accept", "application/json")
+        session.headers.setdefault("Content-Type", "application/json")
+        session.headers.setdefault("local", "vi")
+        session.headers.setdefault("Origin", BASE)
+        session.headers.setdefault("Referer", page_url)
+
+        try:
+            resp = session.get(f"{API_BASE}{api_path}", timeout=30)
+            resp.raise_for_status()
+            raw = resp.text
+            payload = None
+            last_error: Exception | None = None
+            for key in _aes_key_candidates(session, page_url):
+                try:
+                    payload = _decrypt_payload(raw, key)
+                    global _cached_aes_key
+                    _cached_aes_key = key
+                    break
+                except Exception as e:
+                    last_error = e
+            if payload is None:
+                raise last_error or RuntimeError("HDBank decrypt thất bại")
+        except Exception as e:
+            print(f"    HDBank {label}: {e}")
+            if i == 0:
+                raise RuntimeError(f"HDBank {label}: {e}") from e
             continue
 
-        for item in _parse_menu_html(section.get("content") or ""):
+        menu = payload.get("menuList") if isinstance(payload, dict) else None
+        if not menu:
+            print(f"    HDBank {label}: menuList rỗng")
+            if i == 0:
+                raise RuntimeError(f"HDBank {label}: menuList rỗng")
+            continue
+
+        min_year = datetime.now().year - 1
+        batch: list[dict] = []
+        for section in menu:
+            year_label = (section.get("name") or "").strip()
+            if year_label.isdigit() and int(year_label) < min_year:
+                continue
+            batch.extend(_parse_menu_html(section.get("content") or ""))
+
+        for item in batch:
             if item["uid"] in seen_uids:
                 continue
             seen_uids.add(item["uid"])
-            items.append(item)
+            merged.append(item)
+        counts.append(f"{label}: {len(batch)}")
 
-    return items
+    if counts:
+        print(f"    HDBank {', '.join(counts)}")
+    return finalize_fetch(_MOD, merged)

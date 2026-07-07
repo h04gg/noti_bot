@@ -1,10 +1,11 @@
-"""Scraper: VPS Securities (VCK) — Next.js RSC flight data."""
+"""Scraper: VPS Securities (VCK) — Next.js RSC (các tab Quan hệ cổ đông)."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime
 
@@ -12,18 +13,22 @@ from curl_cffi import requests as curl_requests
 
 from config import RECENT_DAYS
 from filters import filter_recent_items, newest_item_date, recent_cutoff
-from scrapers._common import date_from_iso, make_item
+from scrapers._common import date_from_iso, finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 BASE = "https://www.vps.com.vn"
-PAGE_PATH = "/quan-he-co-dong/cong-bo-thong-tin"
-PAGE_URL = f"{BASE}{PAGE_PATH}"
-# State tree cố định cho route cong-bo-thong-tin (__PAGE__)
-ROUTER_STATE_TREE = (
-    "%5B%22%22%2C%7B%22children%22%3A%5B%22(landing)%22%2C%7B%22children%22%3A%5B%22(pages)%22%2C%7B"
-    "%22children%22%3A%5B%22quan-he-co-dong%22%2C%7B%22children%22%3A%5B%22cong-bo-thong-tin%22%2C%7B"
-    "%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D"
-    "%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%2Ctrue%5D"
+QHCD_BASE = f"{BASE}/quan-he-co-dong"
+
+# Các tab trên https://www.vps.com.vn/quan-he-co-dong/
+SECTIONS = (
+    ("cong-bo-thong-tin", "CBTT"),
+    ("bao-cao-cong-ty", "Báo cáo công ty"),
+    ("dai-hoi-dong-co-dong", "ĐHĐCĐ"),
+    ("ho-so-doanh-nghiep", "Hồ sơ DN"),
 )
+
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 VCK_TIMEOUT = 45
 VCK_RETRIES = 3
@@ -35,7 +40,6 @@ _POST_RE = re.compile(
 )
 _TOTAL_RE = re.compile(r'"total":(\d+)')
 _PAGE_SIZE_RE = re.compile(r'"pageSize":(\d+)')
-LAST_RAW_COUNT = 0
 
 
 def _proxy() -> dict[str, str] | None:
@@ -45,18 +49,27 @@ def _proxy() -> dict[str, str] | None:
     return {"http": raw, "https": raw}
 
 
-def _rsc_headers() -> dict[str, str]:
+def _router_state_tree(segment: str) -> str:
+    return (
+        "%5B%22%22%2C%7B%22children%22%3A%5B%22(landing)%22%2C%7B%22children%22%3A%5B%22(pages)%22%2C%7B"
+        f"%22children%22%3A%5B%22quan-he-co-dong%22%2C%7B%22children%22%3A%5B%22{segment}%22%2C%7B"
+        "%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D"
+        "%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%2Ctrue%5D"
+    )
+
+
+def _rsc_headers(page_path: str) -> dict[str, str]:
     return {
         "Accept": "*/*",
         "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
         "RSC": "1",
-        "Next-Url": PAGE_PATH,
-        "Next-Router-State-Tree": ROUTER_STATE_TREE,
-        "Referer": PAGE_URL,
+        "Next-Url": page_path,
+        "Next-Router-State-Tree": _router_state_tree(page_path.rsplit("/", 1)[-1]),
+        "Referer": f"{BASE}{page_path}",
     }
 
 
-def _get_rsc_text(year: int, page: int) -> str:
+def _get_rsc_text(page_path: str, year: int, page: int, label: str) -> str:
     proxies = _proxy()
     params = {"year": year, "page": page}
     last_error: Exception | None = None
@@ -66,9 +79,9 @@ def _get_rsc_text(year: int, page: int) -> str:
         session = curl_requests.Session(impersonate=profile)
         try:
             resp = session.get(
-                PAGE_URL,
+                f"{BASE}{page_path}",
                 params=params,
-                headers=_rsc_headers(),
+                headers=_rsc_headers(page_path),
                 timeout=VCK_TIMEOUT,
                 proxies=proxies,
             )
@@ -82,27 +95,27 @@ def _get_rsc_text(year: int, page: int) -> str:
             last_error = e
             if attempt < VCK_RETRIES:
                 print(
-                    f"    VCK {profile} page {page}: lỗi lần {attempt}/{VCK_RETRIES}: {e}"
+                    f"    VCK {label} {profile} page {page}: lỗi lần {attempt}/{VCK_RETRIES}: {e}"
                     f" — thử lại sau {VCK_RETRY_DELAY}s"
                 )
                 time.sleep(VCK_RETRY_DELAY)
         finally:
             session.close()
 
-    raise RuntimeError(f"VCK page {page}: {last_error}") from last_error
+    raise RuntimeError(f"VCK {label} page {page}: {last_error}") from last_error
 
 
 def _parse_rsc_page(text: str) -> tuple[list[dict], int]:
     items: list[dict] = []
     seen: set[str] = set()
 
-    for m in _POST_RE.finditer(text):
-        date = date_from_iso(m.group(1))
+    for match in _POST_RE.finditer(text):
+        date = date_from_iso(match.group(1))
         try:
-            title = json.loads(f'"{m.group(2)}"')
+            title = json.loads(f'"{match.group(2)}"')
         except json.JSONDecodeError:
-            title = m.group(2)
-        slug = m.group(3).strip()
+            title = match.group(2)
+        slug = match.group(3).strip()
         if not slug or not slug.startswith("vps-"):
             continue
         link = f"{BASE}/bai-viet/{slug}"
@@ -120,16 +133,15 @@ def _parse_rsc_page(text: str) -> tuple[list[dict], int]:
     return items, total_pages
 
 
-def fetch(source: dict, session) -> list[dict]:
-    global LAST_RAW_COUNT
-    year = datetime.now().year
+def _fetch_section(segment: str, label: str, year: int) -> list[dict]:
+    page_path = f"/quan-he-co-dong/{segment}"
     all_items: list[dict] = []
     page = 1
     total_pages = 1
 
     while page <= total_pages:
         try:
-            text = _get_rsc_text(year, page)
+            text = _get_rsc_text(page_path, year, page, label)
         except RuntimeError as e:
             print(f"    {e}")
             if page == 1:
@@ -148,5 +160,36 @@ def fetch(source: dict, session) -> list[dict]:
 
         page += 1
 
-    LAST_RAW_COUNT = len(all_items)
-    return filter_recent_items(all_items)
+    return all_items
+
+
+def fetch(source: dict, session) -> list[dict]:
+    year = datetime.now().year
+    sections = source.get("sections")
+    if sections:
+        section_list = [(s["path"], s.get("label", s["path"])) for s in sections]
+    else:
+        section_list = list(SECTIONS)
+
+    merged: list[dict] = []
+    seen_uids: set[str] = set()
+    counts: list[str] = []
+
+    for segment, label in section_list:
+        try:
+            batch = _fetch_section(segment, label, year)
+        except RuntimeError as e:
+            if segment == section_list[0][0]:
+                raise
+            print(f"    VCK {label}: {e}")
+            continue
+        counts.append(f"{label}: {len(batch)}")
+        for item in batch:
+            if item["uid"] in seen_uids:
+                continue
+            seen_uids.add(item["uid"])
+            merged.append(item)
+
+    if counts:
+        print(f"    VCK {', '.join(counts)} (năm {year})")
+    return finalize_fetch(_MOD, merged, filter_recent=True)

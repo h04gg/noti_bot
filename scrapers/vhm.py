@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
 
-from scrapers._common import format_dmY, make_item, paginate_until_recent
+from scrapers._common import IMPERSONATE_PROFILES, format_dmY, make_item, paginate_until_recent
 
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 PAGE_URL = "https://vinhomes.vn/vi/cong-bo-thong-tin"
 HOME_URL = "https://vinhomes.vn/vi"
-# Thử nhiều fingerprint — IP GHA đôi khi chặn một số profile
-IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 FETCH_RETRIES = 3
 RETRY_DELAY = 3
 
@@ -116,7 +117,7 @@ def fetch(source: dict, session) -> list[dict]:
         return _parse_html(html)
 
     try:
-        return paginate_until_recent(_page)
+        return paginate_until_recent(_page, scraper_module=_MOD)
     except RuntimeError:
         if blocked_on_first_page:
             raise

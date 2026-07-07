@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import html
 import os
+import sys
 import time
 from datetime import datetime
 
 from curl_cffi import requests as curl_requests
 
-from filters import filter_recent_items, parse_item_date
-from scrapers._common import date_from_iso, make_item
+from filters import parse_item_date
+from scrapers._common import date_from_iso, finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
 
 IR_BASE = "https://ir.sunshinegroup.vn"
 CBTT_API = f"{IR_BASE}/wp-json/api/v1/thong-tin-co-dong/cong-bo-thong-tin"
@@ -129,8 +132,6 @@ def _fetch_feed(api_url: str, referer: str, label: str, year: int) -> list[dict]
 
 
 def fetch(source: dict, session) -> list[dict]:
-    global LAST_RAW_COUNT
-
     year = datetime.now().year
     cbtt_api = source.get("api_url", CBTT_API)
     bctc_api = source.get("bctc_api_url", BCTC_API)
@@ -146,16 +147,11 @@ def fetch(source: dict, session) -> list[dict]:
             seen.add(item["uid"])
             merged.append(item)
 
-    try:
-        bctc_items = _fetch_feed(bctc_api, bctc_page, "BCTC", year)
-    except RuntimeError as e:
-        print(f"    {e} — bỏ qua BCTC lần này")
-        bctc_items = []
-
+    bctc_items = _fetch_feed(bctc_api, bctc_page, "BCTC", year)
     for item in bctc_items:
         if item["uid"] not in seen:
             seen.add(item["uid"])
             merged.append(item)
 
-    LAST_RAW_COUNT = len(merged)
-    return filter_recent_items(merged)
+    print(f"    KSF CBTT: {len(cbtt_items)}, BCTC: {len(bctc_items)} (năm {year})")
+    return finalize_fetch(_MOD, merged, filter_recent=True)

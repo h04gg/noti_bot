@@ -1,19 +1,25 @@
-"""Scraper: SHS (Saigon–Hanoi Securities) — API info-disclosure."""
+"""Scraper: SHS (Saigon–Hanoi Securities) — API info-disclosure + periodic-report."""
 
 from __future__ import annotations
 
 import re
+import sys
 
 import requests
 from bs4 import BeautifulSoup
 
 from config import RECENT_DAYS
 from filters import parse_item_date, recent_cutoff
-from scrapers._common import date_from_iso, make_item
+from scrapers._common import date_from_iso, finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 BASE = "https://www.shs.com.vn"
 API_URL = f"{BASE}/api/shareholders/info-disclosure"
+PERIODIC_API_URL = f"{BASE}/api/shareholders/periodic-report"
 DISCLOSURE_CODES = ("DINHKY", "BATTHUONG", "KHAC")
+PERIODIC_CODES = ("TAICHINH",)
 _PDF_RE = re.compile(r'https?://[^\s"\'<>]+\.pdf', re.I)
 
 
@@ -42,7 +48,6 @@ def _doc_link(doc: dict) -> str:
 
 
 def _doc_date(doc: dict) -> str:
-    # PublishedDate = ngày CBTT thực tế; publishedAt có thể cập nhật lại sau
     for key in ("PublishedDate", "createdAt", "publishedAt"):
         raw = doc.get(key)
         if raw:
@@ -52,11 +57,13 @@ def _doc_date(doc: dict) -> str:
     return ""
 
 
-def _fetch_code(
+def _fetch_api(
     session: requests.Session,
     api_url: str,
     code: str,
     page_size: int,
+    *,
+    label: str,
 ) -> list[dict]:
     items: list[dict] = []
     page = 1
@@ -71,7 +78,9 @@ def _fetch_code(
             resp.raise_for_status()
             payload = resp.json()
         except Exception as e:
-            print(f"    SHS {code} page {page}: {e}")
+            print(f"    SHS {label} {code} page {page}: {e}")
+            if page == 1:
+                raise RuntimeError(f"SHS {label} {code} page {page}: {e}") from e
             break
 
         docs = payload.get("data") or []
@@ -104,8 +113,10 @@ def _fetch_code(
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
-    api_url = source.get("api_url", API_URL)
+    disclosure_api = source.get("api_url", API_URL)
+    periodic_api = source.get("periodic_api_url", PERIODIC_API_URL)
     codes = source.get("codes", DISCLOSURE_CODES)
+    periodic_codes = source.get("periodic_codes", PERIODIC_CODES)
     page_size = int(source.get("params", {}).get("pageSize", 10))
 
     session.headers.setdefault("Referer", source.get("source_page", f"{BASE}/cong-bo-thong-tin"))
@@ -113,11 +124,24 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
 
     seen: set[str] = set()
     all_items: list[dict] = []
+    cbtt_count = 0
+    bctc_count = 0
+
     for code in codes:
-        for item in _fetch_code(session, api_url, code, page_size):
+        for item in _fetch_api(session, disclosure_api, code, page_size, label="CBTT"):
             if item["uid"] in seen:
                 continue
             seen.add(item["uid"])
             all_items.append(item)
+            cbtt_count += 1
 
-    return all_items
+    for code in periodic_codes:
+        for item in _fetch_api(session, periodic_api, code, page_size, label="BCTC"):
+            if item["uid"] in seen:
+                continue
+            seen.add(item["uid"])
+            all_items.append(item)
+            bctc_count += 1
+
+    print(f"    SHS CBTT: {cbtt_count}, BCTC: {bctc_count}")
+    return finalize_fetch(_MOD, all_items)

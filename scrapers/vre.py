@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import sys
+
 import requests
 from bs4 import BeautifulSoup
 
-from scrapers._common import extract_dmY, make_item, paginate_until_recent
+from scrapers._common import extract_dmY, make_item, page_fetch_failed, paginate_until_recent
 
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 BASE = "https://ir.vincom.com.vn"
 PAGE_URL = f"{BASE}/cong-bo-thong-tin/cong-bo-thong-tin-vi/"
 
@@ -26,8 +30,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             resp.raise_for_status()
             resp.encoding = resp.apparent_encoding or "utf-8"
         except Exception as e:
-            print(f"    VRE page {page}: {e}")
-            return []
+            page_fetch_failed(page, e, "VRE")
 
         soup = BeautifulSoup(resp.text, "html.parser")
         items: list[dict] = []
@@ -52,4 +55,4 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             items.append(make_item(title, link, date))
         return items
 
-    return paginate_until_recent(_page)
+    return paginate_until_recent(_page, scraper_module=_MOD)

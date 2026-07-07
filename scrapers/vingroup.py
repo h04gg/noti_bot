@@ -5,11 +5,15 @@ Hai mục: Công bố thông tin + Đại hội đồng cổ đông.
 
 from __future__ import annotations
 
+import sys
+
 import requests
 from bs4 import BeautifulSoup
 
-from scrapers._common import make_item
+from scrapers._common import finalize_fetch, make_item
 
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 BASE = "https://vingroup.net"
 
 
@@ -40,9 +44,15 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
     seen_uids: set[str] = set()
     all_items: list[dict] = []
 
-    for url in urls:
-        resp = session.get(url, params=params, timeout=20)
-        resp.raise_for_status()
+    for i, url in enumerate(urls):
+        try:
+            resp = session.get(url, params=params, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"    Vingroup {url}: {e}")
+            if i == 0:
+                raise RuntimeError(f"Vingroup: {e}") from e
+            continue
         soup = BeautifulSoup(resp.text, "html.parser")
         for item in _parse_page(soup):
             if item["uid"] in seen_uids:
@@ -50,4 +60,4 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             seen_uids.add(item["uid"])
             all_items.append(item)
 
-    return all_items
+    return finalize_fetch(_MOD, all_items)

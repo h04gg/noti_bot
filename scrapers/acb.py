@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 
 import requests
 
 from config import RECENT_DAYS
 from filters import parse_item_date, recent_cutoff
-from scrapers._common import date_from_iso, make_item
+from scrapers._common import date_from_iso, finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 BASE = "https://acb.com.vn"
 API_URL = f"{BASE}/api/front/v1/posts"
@@ -51,44 +55,53 @@ def _resolve_session_tag(session: requests.Session, year: int) -> int | None:
     return None
 
 
-def _search_params(source: dict, page: int, session_tag: int | None) -> dict:
-    cfg = source.get("params", {})
-    params = {
-        "search[categories.category_id:in]": str(cfg.get("category_id", 656)),
-        "search[is_active:in]": "1",
-        "page": page,
-        "limit": int(cfg.get("limit", 20)),
-    }
-    if session_tag is not None:
-        params["search[session_tags::tags:in]"] = str(session_tag)
-    return params
+def _resolve_bctc_category(session: requests.Session, year: int) -> int | None:
+    """Category BCTC theo slug bao-cao-tai-chinh-YYYY."""
+    try:
+        resp = session.get(f"{BASE}/api/front/v1/categories", params={"limit": 200}, timeout=20)
+        resp.raise_for_status()
+        categories = resp.json().get("data") or []
+    except Exception as e:
+        print(f"    ACB categories API: {e}")
+        return None
+
+    slug = f"bao-cao-tai-chinh-{year}"
+    for cat in categories:
+        if str(cat.get("slug", "")).strip() == slug:
+            return int(cat["id"])
+    print(f"    ACB: chưa có category {slug}")
+    return None
 
 
-def fetch(source: dict, session: requests.Session) -> list[dict]:
+def _fetch_posts(
+    session: requests.Session,
+    source: dict,
+    category_id: int,
+    session_tag: int | None,
+    *,
+    label: str,
+) -> list[dict]:
     api_url = source.get("api_url", API_URL)
-    page_url = source.get("source_page", PAGE_URL)
-
-    session.headers.setdefault("Accept", "application/json")
-    session.headers.setdefault("Referer", page_url)
-    session.headers.setdefault("X-Requested-Store", "default")
-    session.headers.setdefault("X-Requested-With", "XMLHttpRequest")
-
-    session_tag = _resolve_session_tag(session, datetime.now().year)
     items: list[dict] = []
-    seen_uids: set[str] = set()
     page = 1
 
     while page <= 20:
+        params = {
+            "search[categories.category_id:in]": str(category_id),
+            "search[is_active:in]": "1",
+            "page": page,
+            "limit": int(source.get("params", {}).get("limit", 20)),
+        }
+        if session_tag is not None:
+            params["search[session_tags::tags:in]"] = str(session_tag)
         try:
-            resp = session.get(
-                api_url,
-                params=_search_params(source, page, session_tag),
-                timeout=25,
-            )
+            resp = session.get(api_url, params=params, timeout=25)
             resp.raise_for_status()
             payload = resp.json()
         except Exception as e:
-            print(f"    ACB page {page}: {e}")
+            print(f"    ACB {label} page {page}: {e}")
+            if page == 1:
+                raise RuntimeError(f"ACB {label} page {page}: {e}") from e
             break
 
         docs = payload.get("data") or []
@@ -101,11 +114,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             link = _doc_link(doc)
             if not title or not link:
                 continue
-            item = make_item(title, link, _doc_date(doc))
-            if item["uid"] in seen_uids:
-                continue
-            seen_uids.add(item["uid"])
-            page_items.append(item)
+            page_items.append(make_item(title, link, _doc_date(doc)))
 
         items.extend(page_items)
 
@@ -120,3 +129,40 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         page += 1
 
     return items
+
+
+def fetch(source: dict, session: requests.Session) -> list[dict]:
+    page_url = source.get("source_page", PAGE_URL)
+    session.headers.setdefault("Accept", "application/json")
+    session.headers.setdefault("Referer", page_url)
+    session.headers.setdefault("X-Requested-Store", "default")
+    session.headers.setdefault("X-Requested-With", "XMLHttpRequest")
+
+    year = datetime.now().year
+    cbtt_category = int(source.get("params", {}).get("category_id", 656))
+    session_tag = _resolve_session_tag(session, year)
+
+    merged: list[dict] = []
+    seen_uids: set[str] = set()
+
+    cbtt_items = _fetch_posts(session, source, cbtt_category, session_tag, label="CBTT")
+    for item in cbtt_items:
+        if item["uid"] in seen_uids:
+            continue
+        seen_uids.add(item["uid"])
+        merged.append(item)
+
+    bctc_items: list[dict] = []
+    bctc_category = source.get("bctc_category_id")
+    if bctc_category is None:
+        bctc_category = _resolve_bctc_category(session, year)
+    if bctc_category:
+        bctc_items = _fetch_posts(session, source, int(bctc_category), None, label="BCTC")
+        for item in bctc_items:
+            if item["uid"] in seen_uids:
+                continue
+            seen_uids.add(item["uid"])
+            merged.append(item)
+
+    print(f"    ACB CBTT: {len(cbtt_items)}, BCTC: {len(bctc_items)}")
+    return finalize_fetch(_MOD, merged)

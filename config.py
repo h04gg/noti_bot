@@ -21,8 +21,8 @@ SOURCES = [
         "emoji": "🏠",
         "category": "bds",
         "url": "https://www.phatdat.com.vn/ajax/reports/filter",
-        "params": {"category_id": 5, "year": "", "quarter": "", "page": 1, "lang": "vi"},
-        "source_page": "https://www.phatdat.com.vn/quan-he-co-dong/cong-bo-thong-tin",
+        "params": {"year": "", "quarter": "", "page": 1, "lang": "vi"},
+        "source_page": "https://www.phatdat.com.vn/quan-he-nha-dau-tu#investor-2",
     },
     {
         "id": "vingroup",
@@ -114,7 +114,9 @@ SOURCES = [
         "category": "finance",
         "url": "https://nhadautu.f88.vn/cong-bo-thong-tin",
         "api_url": "https://apis.f88.vn/growth/f88vn/api/v1/Initial/InitPageInvestDocument",
+        "bctc_api_url": "https://apis.f88.vn/growth/f88vn/api/v1/Initial/InitPageNewsSub",
         "source_page": "https://nhadautu.f88.vn/cong-bo-thong-tin",
+        "bctc_page": "https://nhadautu.f88.vn/bao-cao-tai-chinh",
     },
     # ── Chứng khoán ───────────────────────────────────────────────────────────
     {
@@ -123,6 +125,7 @@ SOURCES = [
         "emoji": "📊",
         "category": "securities",
         "url": "https://www.vietcap.com.vn/quan-he-co-dong/",
+        "bctc_page": "https://www.vietcap.com.vn/quan-he-co-dong/bao-cao-tai-chinh",
         "source_page": "https://www.vietcap.com.vn/quan-he-co-dong/",
     },
     {
@@ -131,6 +134,7 @@ SOURCES = [
         "emoji": "📉",
         "category": "securities",
         "url": "https://hdbs.vn/quan-he-co-dong/cong-bo-thong-tin/",
+        "bctc_page": "https://hdbs.vn/quan-he-co-dong/bao-cao-tai-chinh/",
         "source_page": "https://hdbs.vn/quan-he-co-dong/cong-bo-thong-tin/",
     },
     {
@@ -140,6 +144,12 @@ SOURCES = [
         "category": "securities",
         "url": "https://www.vps.com.vn/quan-he-co-dong/cong-bo-thong-tin",
         "source_page": "https://www.vps.com.vn/quan-he-co-dong/cong-bo-thong-tin",
+        "sections": [
+            {"path": "cong-bo-thong-tin", "label": "CBTT"},
+            {"path": "bao-cao-cong-ty", "label": "Báo cáo công ty"},
+            {"path": "dai-hoi-dong-co-dong", "label": "ĐHĐCĐ"},
+            {"path": "ho-so-doanh-nghiep", "label": "Hồ sơ DN"},
+        ],
     },
     {
         "id": "tcx",
@@ -148,6 +158,23 @@ SOURCES = [
         "category": "securities",
         "url": "https://www.tcbs.com.vn/nha-dau-tu/quan-he-nha-dau-tu/cong-bo-thong-tin/",
         "source_page": "https://www.tcbs.com.vn/nha-dau-tu/quan-he-nha-dau-tu/cong-bo-thong-tin/",
+        "feeds": [
+            {
+                "url": "https://www.tcbs.com.vn/nha-dau-tu/quan-he-nha-dau-tu/cong-bo-thong-tin/",
+                "label": "CBTT",
+                "cbtt_only": True,
+            },
+            {
+                "url": "https://www.tcbs.com.vn/nha-dau-tu/quan-he-nha-dau-tu/bao-cao-cong-ty/bao-cao-thuong-nien/",
+                "label": "BCTN",
+                "cbtt_only": False,
+            },
+            {
+                "url": "https://www.tcbs.com.vn/nha-dau-tu/quan-he-nha-dau-tu/bao-cao-cong-ty/bao-cao-tinh-hinh-quan-tri-cong-ty/",
+                "label": "BC quản trị",
+                "cbtt_only": False,
+            },
+        ],
     },
     {
         "id": "mbs",
@@ -164,6 +191,7 @@ SOURCES = [
         "emoji": "🔷",
         "category": "securities",
         "url": "https://www.ssi.com.vn/quan-he-nha-dau-tu/cong-bo-thong-tin",
+        "bctc_page": "https://www.ssi.com.vn/quan-he-nha-dau-tu/bao-cao-tai-chinh",
         "source_page": "https://www.ssi.com.vn/quan-he-nha-dau-tu/cong-bo-thong-tin",
     },
     {
@@ -186,6 +214,7 @@ SOURCES = [
         "emoji": "🔶",
         "category": "securities",
         "path": "/qhcd/cong-bo-thong-tin",
+        "bctc_path": "/bao-cao",
         "params": {"num": 20, "y": -1},
         "source_page": "https://vixs.vn/qhcd/cong-bo-thong-tin?num=20&y=-1",
     },
@@ -195,9 +224,11 @@ SOURCES = [
         "emoji": "🔹",
         "category": "securities",
         "api_url": "https://shs.com.vn/api/shareholders/info-disclosure",
+        "periodic_api_url": "https://shs.com.vn/api/shareholders/periodic-report",
         "codes": ["DINHKY", "BATTHUONG", "KHAC"],
+        "periodic_codes": ["TAICHINH"],
         "params": {"pageSize": 10},
-        "source_page": "https://www.shs.com.vn/cong-bo-thong-tin",
+        "source_page": "https://shs.com.vn/quan-he-co-dong/bao-cao-dinh-ky/TAICHINH",
     },
     # ── Ngân hàng ─────────────────────────────────────────────────────────────
     {
@@ -206,13 +237,26 @@ SOURCES = [
         "emoji": "🏦",
         "category": "bank",
         "url": "https://www.vpbank.com.vn/uiux-api/api/document",
-        "params": {
-            "lang": "vi",
-            # Scraper tự thay /YYYY cuối path bằng năm hiện tại
-            "categoryPath": "/quan-he-nha-dau-tu/cong-bo-thong-tin-khac/2020",
-            "pageSize": 10,
-            "pageIndex": 1,
-        },
+        "feeds": [
+            {
+                "params": {
+                    "lang": "vi",
+                    "categoryPath": "/quan-he-nha-dau-tu/cong-bo-thong-tin-khac/2020",
+                    "pageSize": 10,
+                    "pageIndex": 1,
+                },
+                "label": "CBTT",
+            },
+            {
+                "params": {
+                    "lang": "vi",
+                    "categoryPath": "/quan-he-nha-dau-tu/bao-cao-tai-chinh",
+                    "pageSize": 10,
+                    "pageIndex": 1,
+                },
+                "label": "BCTC",
+            },
+        ],
         "source_page": "https://www.vpbank.com.vn/quan-he-nha-dau-tu/cong-bo-thong-tin-khac",
     },
     {
@@ -229,6 +273,7 @@ SOURCES = [
         "emoji": "🪖",
         "category": "bank",
         "url": "https://www.mbbank.com.vn/Investor/thong-bao-nha-dau-tu/{year}/0//0",
+        "bctc_url": "https://www.mbbank.com.vn/Investor/bao-cao-tai-chinh/{year}/0//0",
         "source_page": "https://www.mbbank.com.vn/Investor/thong-bao-nha-dau-tu",
     },
     {
@@ -236,7 +281,18 @@ SOURCES = [
         "name": "HDBank (HDB)",
         "emoji": "🔴",
         "category": "bank",
-        "api_path": "/vi/investors/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
+        "feeds": [
+            {
+                "api_path": "/vi/investors/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
+                "page_url": "https://hdbank.com.vn/vi/investor/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
+                "label": "CBTT",
+            },
+            {
+                "api_path": "/vi/investors/thong-tin-nha-dau-tu/bao-cao-tai-chinh",
+                "page_url": "https://hdbank.com.vn/vi/investor/thong-tin-nha-dau-tu/bao-cao-tai-chinh",
+                "label": "BCTC",
+            },
+        ],
         "source_page": "https://hdbank.com.vn/vi/investor/thong-tin-nha-dau-tu/quan-he-co-dong/cong-bo-thong-tin-thong-tin-khac",
     },
     {
@@ -245,6 +301,10 @@ SOURCES = [
         "emoji": "🌿",
         "category": "bank",
         "url": "https://lpbank.com.vn/nha-dau-tu/cong-bo-thong-tin",
+        "categories": [
+            ("CONG_BO_THONG_TIN", "CBTT"),
+            ("BAO_CAO", "BCTC"),
+        ],
         "source_page": "https://lpbank.com.vn/nha-dau-tu/cong-bo-thong-tin",
     },
     {
@@ -253,6 +313,7 @@ SOURCES = [
         "emoji": "🟡",
         "category": "bank",
         "api_url": "https://www.sacombank.com.vn/trang-chu/nha-dau-tu/cong-bo-thong-tin/_jcr_content/root/container/container/shareholdernotice.sacom.shnotice.json",
+        "financial_api_url": "https://www.sacombank.com.vn/trang-chu/nha-dau-tu/bao-cao/_jcr_content/root/container/container/reportlisting.sacom.reportlisting.financial.json",
         "source_page": "https://www.sacombank.com.vn/trang-chu/nha-dau-tu/cong-bo-thong-tin.html",
     },
     {
@@ -277,6 +338,7 @@ SOURCES = [
             {"cf_slug": "disclosure-khac", "referer": "thong-tin-khac"},
             {"cf_slug": "hoi-dong-quan-tri", "referer": "nghi-quyet-hdqt"},
             {"cf_slug": "tai-lieu-doanh-nghiep", "referer": "tai-lieu-doanh-nghiep"},
+            {"cf_slug": "bao-cao-tai-chinh-vas", "referer": "bao-cao-tai-chinh-vas"},
         ],
     },
     {
@@ -284,7 +346,16 @@ SOURCES = [
         "name": "BIDV",
         "emoji": "🟠",
         "category": "bank",
-        "url": "https://bidv.com.vn/vn/quan-he-nha-dau-tu/thong-tin-co-dong",
+        "feeds": [
+            {
+                "url": "https://bidv.com.vn/vn/quan-he-nha-dau-tu/thong-tin-co-dong",
+                "label": "CBTT",
+            },
+            {
+                "url": "https://bidv.com.vn/vn/quan-he-nha-dau-tu/bao-cao-va-tai-lieu/",
+                "label": "BCTC",
+            },
+        ],
         "source_page": "https://bidv.com.vn/vn/quan-he-nha-dau-tu/thong-tin-co-dong",
     },
     # ── Khác ──────────────────────────────────────────────────────────────────

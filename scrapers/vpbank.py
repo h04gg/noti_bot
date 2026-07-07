@@ -4,52 +4,31 @@ API: /uiux-api/api/document?lang=vi&categoryPath=...&pageSize=...&pageIndex=...
 """
 
 import re
+import sys
+
 import requests
 from datetime import datetime
 
 from config import RECENT_DAYS
-from filters import filter_recent_items, newest_item_date, recent_cutoff
-from scrapers._common import make_item
+from filters import newest_item_date, recent_cutoff
+from scrapers._common import finalize_fetch, make_item
 
-
-def fetch(source: dict, session: requests.Session) -> list[dict]:
-    url = source["url"]
-    params = dict(source.get("params", {}))
-    page_size = int(params.get("pageSize", 4))
-    page_index = int(params.pop("pageIndex", 1))
-
-    category_path = params.get("categoryPath", "")
-    if category_path:
-        year = str(datetime.now().year)
-        params["categoryPath"] = re.sub(r"/\d{4}$", f"/{year}", category_path)
-
-    all_items: list[dict] = []
-    while True:
-        params["pageIndex"] = page_index
-        items, total = _fetch_page(session, url, params)
-        all_items.extend(items)
-
-        if not items or page_index * page_size >= total:
-            break
-
-        page_newest = newest_item_date(items)
-        if page_newest and page_newest < recent_cutoff(RECENT_DAYS):
-            break
-
-        page_index += 1
-
-    return filter_recent_items(all_items)
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 
 def _fetch_page(
     session: requests.Session, url: str, params: dict
 ) -> tuple[list[dict], int]:
+    page = int(params.get("pageIndex", 1))
     try:
         resp = session.get(url, params=params, timeout=20)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"    VPBank page {params.get('pageIndex', 1)}: {e}")
+        print(f"    VPBank page {page}: {e}")
+        if page == 1:
+            raise RuntimeError(f"VPBank page {page}: {e}") from e
         return [], 0
 
     items = []
@@ -81,3 +60,57 @@ def _fetch_page(
         items.append(make_item(title, link, date))
 
     return items, int(data.get("total", 0))
+
+
+def _fetch_feed(session: requests.Session, url: str, params: dict, label: str) -> list[dict]:
+    page_size = int(params.get("pageSize", 10))
+    page_index = int(params.pop("pageIndex", 1))
+    category_path = params.get("categoryPath", "")
+    if category_path and re.search(r"/\d{4}$", category_path):
+        params["categoryPath"] = re.sub(r"/\d{4}$", f"/{datetime.now().year}", category_path)
+
+    all_items: list[dict] = []
+    while True:
+        params["pageIndex"] = page_index
+        items, total = _fetch_page(session, url, dict(params))
+        all_items.extend(items)
+
+        if not items or page_index * page_size >= total:
+            break
+
+        page_newest = newest_item_date(items)
+        if page_newest and page_newest < recent_cutoff(RECENT_DAYS):
+            break
+
+        page_index += 1
+
+    return all_items
+
+
+def fetch(source: dict, session: requests.Session) -> list[dict]:
+    url = source["url"]
+    feeds = source.get("feeds") or [
+        {
+            "params": dict(source.get("params", {})),
+            "label": "CBTT",
+        }
+    ]
+
+    merged: list[dict] = []
+    seen_uids: set[str] = set()
+    counts: list[str] = []
+
+    for feed in feeds:
+        params = dict(feed.get("params", {}))
+        label = feed.get("label", "feed")
+        batch = _fetch_feed(session, url, params, label)
+        counts.append(f"{label}: {len(batch)}")
+        for item in batch:
+            if item["uid"] in seen_uids:
+                continue
+            seen_uids.add(item["uid"])
+            merged.append(item)
+
+    if counts:
+        print(f"    VPBank {', '.join(counts)}")
+    return finalize_fetch(_MOD, merged, filter_recent=True)

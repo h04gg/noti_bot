@@ -1,16 +1,24 @@
-"""Scraper: Nam Long (NLG) — mục Công bố thông tin (Quan hệ nhà đầu tư)."""
+"""Scraper: Nam Long (NLG) — tab Công bố thông tin + Báo cáo tài chính."""
 
 from __future__ import annotations
 
 import re
+import sys
 
-import requests
 from bs4 import BeautifulSoup
 
-from scrapers._common import extract_dmY, format_dmY, make_item
+from filters import filter_recent_items
+from scrapers._common import curl_get_text, extract_dmY, format_dmY, make_item
 
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 BASE = "https://www.namlongvn.com"
 PAGE_URL = f"{BASE}/quan-he-nha-dau-tu/"
+
+_SECTIONS = (
+    ("disclosure", "year-disclosure", "CBTT"),
+    ("financial", "year-financial", "BCTC"),
+)
 
 
 def _parse_date(raw: str, link: str) -> str:
@@ -26,21 +34,14 @@ def _parse_date(raw: str, link: str) -> str:
     return ""
 
 
-def fetch(source: dict, session: requests.Session) -> list[dict]:
-    url = source.get("url", PAGE_URL)
-    resp = session.get(url, timeout=25)
-    resp.raise_for_status()
-    resp.encoding = resp.apparent_encoding or "utf-8"
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    disclosure = soup.select_one("#disclosure")
-    if not disclosure:
-        print("    NLG: không tìm thấy tab Công bố thông tin")
+def _parse_section(soup: BeautifulSoup, section_id: str, list_class: str) -> list[dict]:
+    section = soup.select_one(f"#{section_id}")
+    if not section:
         return []
 
-    seen: set[str] = set()
     items: list[dict] = []
-    for doc in disclosure.select(".doc-list.year-disclosure .doc-item"):
+    seen: set[str] = set()
+    for doc in section.select(f".doc-list.{list_class} .doc-item"):
         title_a = doc.select_one(".doc-title a[href]")
         if not title_a:
             continue
@@ -57,3 +58,33 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         items.append(make_item(title, link, date))
 
     return items
+
+
+def fetch(source: dict, session) -> list[dict]:
+    url = source.get("url", PAGE_URL)
+    try:
+        html = curl_get_text(url, source_id="nlg", timeout=25)
+    except Exception as e:
+        print(f"    NLG HTML: {e}")
+        raise
+
+    soup = BeautifulSoup(html, "html.parser")
+    merged: list[dict] = []
+    seen_uids: set[str] = set()
+
+    for section_id, list_class, label in _SECTIONS:
+        section_items = _parse_section(soup, section_id, list_class)
+        if not section_items and section_id == "disclosure":
+            print(f"    NLG: không tìm thấy tab {label}")
+            raise RuntimeError(f"NLG: không tìm thấy tab {label}")
+        if not section_items:
+            print(f"    NLG: không tìm thấy tab {label}")
+            continue
+        for item in section_items:
+            if item["uid"] in seen_uids:
+                continue
+            seen_uids.add(item["uid"])
+            merged.append(item)
+
+    _MOD.LAST_RAW_COUNT = len(merged)
+    return filter_recent_items(merged)

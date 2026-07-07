@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+
 import requests
 
-from filters import filter_recent_items
-from scrapers._common import date_from_iso, make_item
+from scrapers._common import date_from_iso, finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 BASE = "https://techcombank.com"
 PAGE_URL = f"{BASE}/nha-dau-tu/cong-bo-thong-tin"
@@ -14,6 +18,7 @@ DEFAULT_ENDPOINTS = (
     {"cf_slug": "disclosure-khac", "referer": "thong-tin-khac"},
     {"cf_slug": "hoi-dong-quan-tri", "referer": "nghi-quyet-hdqt"},
     {"cf_slug": "tai-lieu-doanh-nghiep", "referer": "tai-lieu-doanh-nghiep"},
+    {"cf_slug": "bao-cao-tai-chinh-vas", "referer": "bao-cao-tai-chinh-vas"},
 )
 
 
@@ -80,6 +85,8 @@ def _fetch_endpoint(
     session: requests.Session,
     cf_slug: str,
     referer_slug: str,
+    *,
+    critical: bool = False,
 ) -> list[dict]:
     try:
         resp = session.get(
@@ -91,6 +98,8 @@ def _fetch_endpoint(
         payload = resp.json()
     except Exception as e:
         print(f"    TCB {cf_slug}: {e}")
+        if critical:
+            raise RuntimeError(f"TCB {cf_slug}: {e}") from e
         return []
 
     fragment = (payload.get("data") or {}).get("listViewDocumentFragmentList") or {}
@@ -111,13 +120,13 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
     seen_uids: set[str] = set()
     all_items: list[dict] = []
 
-    for endpoint in endpoints:
+    for i, endpoint in enumerate(endpoints):
         cf_slug = endpoint["cf_slug"]
         referer = endpoint.get("referer", cf_slug)
-        for item in _fetch_endpoint(session, cf_slug, referer):
+        for item in _fetch_endpoint(session, cf_slug, referer, critical=(i == 0)):
             if item["uid"] in seen_uids:
                 continue
             seen_uids.add(item["uid"])
             all_items.append(item)
 
-    return filter_recent_items(all_items)
+    return finalize_fetch(_MOD, all_items, filter_recent=True)

@@ -8,12 +8,15 @@ danh sách CBTT nằm trong các khối `var item = { ... }` trên HTML.
 from __future__ import annotations
 
 import re
+import sys
 from html import unescape
 
 import requests
 
-from filters import filter_recent_items
-from scrapers._common import make_item
+from scrapers._common import finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 BASE = "https://bidv.com.vn"
 PAGE_URL = f"{BASE}/vn/quan-he-nha-dau-tu/thong-tin-co-dong"
@@ -75,23 +78,47 @@ def _parse_items(html: str) -> list[dict]:
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
-    page_url = source.get("url", PAGE_URL)
+    feeds = source.get("feeds") or [
+        {
+            "url": source.get("url", PAGE_URL),
+            "label": "CBTT",
+        }
+    ]
     session.headers.setdefault(
         "User-Agent",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     )
 
-    try:
-        resp = session.get(page_url, timeout=40)
-        resp.raise_for_status()
-        resp.encoding = resp.apparent_encoding or "utf-8"
-    except Exception as e:
-        print(f"    BIDV HTML: {e}")
-        return []
+    merged: list[dict] = []
+    seen_uids: set[str] = set()
+    counts: list[str] = []
 
-    items = _parse_items(resp.text)
-    if not items:
-        print("    BIDV: không parse được tài liệu từ HTML")
+    for i, feed in enumerate(feeds):
+        page_url = feed["url"]
+        label = feed.get("label", "feed")
+        try:
+            resp = session.get(page_url, timeout=40)
+            resp.raise_for_status()
+            resp.encoding = resp.apparent_encoding or "utf-8"
+        except Exception as e:
+            print(f"    BIDV {label}: {e}")
+            if i == 0:
+                raise RuntimeError(f"BIDV {label}: {e}") from e
+            continue
 
-    return filter_recent_items(items)
+        batch = _parse_items(resp.text)
+        if not batch and i == 0:
+            print(f"    BIDV {label}: không parse được tài liệu từ HTML")
+            raise RuntimeError(f"BIDV {label}: không parse được tài liệu từ HTML")
+
+        counts.append(f"{label}: {len(batch)}")
+        for item in batch:
+            if item["uid"] in seen_uids:
+                continue
+            seen_uids.add(item["uid"])
+            merged.append(item)
+
+    if counts:
+        print(f"    BIDV {', '.join(counts)}")
+    return finalize_fetch(_MOD, merged, filter_recent=True)

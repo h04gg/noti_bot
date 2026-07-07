@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import sys
+
 import requests
 from bs4 import BeautifulSoup
 
 from config import RECENT_DAYS
 from filters import parse_item_date, recent_cutoff
-from scrapers._common import date_from_iso, make_item
+from scrapers._common import date_from_iso, finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 BASE = "https://lpbank.com.vn"
 API_URL = f"{BASE}/api/content-service/public/findAllInvestor"
@@ -47,6 +52,9 @@ def _doc_date(doc: dict) -> str:
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
+    categories = source.get("categories") or [
+        (source.get("category", CATEGORY), "CBTT"),
+    ]
     page_url = source.get("source_page", f"{BASE}/nha-dau-tu/cong-bo-thong-tin")
     session.headers.setdefault("Origin", BASE)
     session.headers.setdefault("Referer", page_url)
@@ -55,60 +63,71 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
 
     items: list[dict] = []
     seen_uids: set[str] = set()
-    page = 0
-    page_size = 20
+    counts: list[str] = []
 
-    while True:
-        try:
-            resp = session.post(
-                API_URL,
-                json={
-                    "title": None,
-                    "category": CATEGORY,
-                    "subCategory": None,
-                    "year": "",
-                    "otherYear": None,
-                    "page": page,
-                    "size": page_size,
-                    "sortCustoms": [
-                        {"sortAsc": False, "nullsFirst": False, "sortField": "updatedDate"},
-                        {"sortAsc": False, "nullsFirst": False, "sortField": "startDate"},
-                        {"sortAsc": False, "nullsFirst": False, "sortField": "postNow"},
-                    ],
-                },
-                timeout=25,
-            )
-            resp.raise_for_status()
-            data = resp.json().get("data") or {}
-        except Exception as e:
-            print(f"    LPB API page {page}: {e}")
-            break
+    for category, label in categories:
+        page = 0
+        page_size = 20
+        batch: list[dict] = []
 
-        docs = data.get("content") or []
-        if not docs:
-            break
+        while True:
+            try:
+                resp = session.post(
+                    API_URL,
+                    json={
+                        "title": None,
+                        "category": category,
+                        "subCategory": None,
+                        "year": "",
+                        "otherYear": None,
+                        "page": page,
+                        "size": page_size,
+                        "sortCustoms": [
+                            {"sortAsc": False, "nullsFirst": False, "sortField": "updatedDate"},
+                            {"sortAsc": False, "nullsFirst": False, "sortField": "startDate"},
+                            {"sortAsc": False, "nullsFirst": False, "sortField": "postNow"},
+                        ],
+                    },
+                    timeout=25,
+                )
+                resp.raise_for_status()
+                data = resp.json().get("data") or {}
+            except Exception as e:
+                print(f"    LPB {label} page {page}: {e}")
+                if page == 0:
+                    raise RuntimeError(f"LPB {label} page {page}: {e}") from e
+                break
 
-        page_items: list[dict] = []
-        for doc in docs:
-            title = (doc.get("title") or "").strip()
-            link = _extract_link(doc)
-            if not title or not link:
-                continue
-            item = make_item(title, link, _doc_date(doc))
-            if item["uid"] in seen_uids:
-                continue
-            seen_uids.add(item["uid"])
-            page_items.append(item)
+            docs = data.get("content") or []
+            if not docs:
+                break
 
-        items.extend(page_items)
+            page_items: list[dict] = []
+            for doc in docs:
+                title = (doc.get("title") or "").strip()
+                link = _extract_link(doc)
+                if not title or not link:
+                    continue
+                item = make_item(title, link, _doc_date(doc))
+                if item["uid"] in seen_uids:
+                    continue
+                seen_uids.add(item["uid"])
+                page_items.append(item)
 
-        dates = [parse_item_date(item.get("date", "")) for item in page_items]
-        dates = [dt for dt in dates if dt is not None]
-        if dates and min(dates) < recent_cutoff(RECENT_DAYS):
-            break
+            batch.extend(page_items)
 
-        if data.get("last", True):
-            break
-        page += 1
+            dates = [parse_item_date(item.get("date", "")) for item in page_items]
+            dates = [dt for dt in dates if dt is not None]
+            if dates and min(dates) < recent_cutoff(RECENT_DAYS):
+                break
 
-    return items
+            if data.get("last", True):
+                break
+            page += 1
+
+        items.extend(batch)
+        counts.append(f"{label}: {len(batch)}")
+
+    if counts:
+        print(f"    LPB {', '.join(counts)}")
+    return finalize_fetch(_MOD, items)

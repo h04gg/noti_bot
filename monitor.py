@@ -69,6 +69,9 @@ def fetch_source(
         try:
             items = scraper.fetch(source, session)
             raw_count = getattr(scraper, "LAST_RAW_COUNT", None)
+            # Scraper chưa set LAST_RAW_COUNT: dùng số tin trước khi monitor lọc ngày
+            if raw_count is None and items is not None:
+                raw_count = len(items)
             if attempt > 1:
                 print(f"  ✅ [{sid}] {len(items)} items (sau {attempt} lần thử)")
             else:

@@ -4,13 +4,18 @@ WP REST API /wp/v2/doc trả 404; lấy PDF từ trang doc-cat.
 """
 
 import re
+import sys
+
 import requests
 import urllib3
 from bs4 import BeautifulSoup
 
-from scrapers._common import make_item
+from scrapers._common import finalize_fetch, make_item
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 
 def fetch(source: dict, session: requests.Session) -> list[dict]:
@@ -21,7 +26,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         resp.raise_for_status()
     except Exception as e:
         print(f"    Gelex HTML: {e}")
-        return []
+        raise RuntimeError(f"Gelex HTML: {e}") from e
 
     soup = BeautifulSoup(resp.text, "html.parser")
     items = []
@@ -44,7 +49,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         date = _date_from_url(link)
         items.append(make_item(title, link, date))
 
-    return items
+    return finalize_fetch(_MOD, items)
 
 
 def _date_from_url(link: str) -> str:

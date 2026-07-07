@@ -7,10 +7,14 @@ self.__next_f.push, không có link PDF trong thẻ <a>.
 from __future__ import annotations
 
 import re
+import sys
 
 import requests
 
-from scrapers._common import date_from_iso, make_item
+from scrapers._common import date_from_iso, finalize_fetch, make_item
+
+_MOD = sys.modules[__name__]
+LAST_RAW_COUNT = 0
 
 PAGE_URL = "https://eximbank.com.vn/thong-tin-khac"
 
@@ -66,18 +70,19 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         resp.raise_for_status()
     except Exception as e:
         print(f"    Eximbank RSC: {e}")
-        return []
+        raise RuntimeError(f"Eximbank RSC: {e}") from e
 
     chunks = re.findall(
         r'self\.__next_f\.push\(\[1,"((?:\\.|[^"\\])*)"\]\)', resp.text
     )
     if not chunks:
         print("    Eximbank: không tìm thấy Next.js payload")
-        return []
+        raise RuntimeError("Eximbank: không tìm thấy Next.js payload")
 
     payload = max(chunks, key=len)
     items = _parse_payload(payload)
     if not items:
         print("    Eximbank: payload có nhưng không parse được tài liệu")
+        raise RuntimeError("Eximbank: không parse được tài liệu từ payload")
 
-    return items
+    return finalize_fetch(_MOD, items)
