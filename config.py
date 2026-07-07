@@ -50,6 +50,7 @@ SOURCES = [
         "emoji": "🏘️",
         "category": "bds",
         "url": "https://www.dic.vn/cong-bo-thong-tin",
+        "bctc_page": "https://www.dic.vn/bao-cao-tai-chinh",
         "source_page": "https://www.dic.vn/cong-bo-thong-tin",
     },
     {
@@ -58,6 +59,7 @@ SOURCES = [
         "emoji": "🏡",
         "category": "bds",
         "url": "https://www.khangdien.com.vn/co-dong/cong-bo-thong-tin",
+        "bccb_page": "https://www.khangdien.com.vn/co-dong/bao-cao-cao-bach",
         "source_page": "https://www.khangdien.com.vn/co-dong/cong-bo-thong-tin",
     },
     {
@@ -99,7 +101,9 @@ SOURCES = [
         "category": "bds",
         "url": "https://sunshinegroup.vn/cong-bo-thong-tin/",
         "api_url": "https://ir.sunshinegroup.vn/wp-json/api/v1/thong-tin-co-dong/cong-bo-thong-tin",
+        "bctc_api_url": "https://ir.sunshinegroup.vn/wp-json/api/v1/thong-tin-co-dong/bao-cao-tai-chinh",
         "source_page": "https://sunshinegroup.vn/cong-bo-thong-tin/",
+        "bctc_page": "https://sunshinegroup.vn/bao-cao-tai-chinh/",
     },
     # ── Tài chính ─────────────────────────────────────────────────────────────
     {
@@ -171,7 +175,8 @@ SOURCES = [
             "currentPage": 1,
             "language": "vi",
         },
-        "source_page": "https://www.bvsc.com.vn/quan-he-co-dong",
+        "source_page": "https://www.bvsc.com.vn/danhmuc/quan-he-nha-dau-tu/cong-bo-thong-tin/",
+        "bctc_page": "https://www.bvsc.com.vn/danhmuc/quan-he-nha-dau-tu/bao-cao-tai-chinh/",
     },
     {
         "id": "vix",

@@ -1,60 +1,234 @@
-"""Scraper: Khang Điền (KDH) — PDF từ trang Công bố thông tin."""
+"""Scraper: Khang Điền (KDH) — WordPress AJAX CBTT + HTML Báo cáo & Cao bạch."""
 
 from __future__ import annotations
 
+import os
 import re
-import requests
-from bs4 import BeautifulSoup
+import time
+from datetime import datetime
 
-from scrapers._common import extract_dmY, format_dmY, make_item, paginate_until_recent
+from bs4 import BeautifulSoup
+from curl_cffi import requests as curl_requests
+
+from filters import filter_recent_items, parse_item_date
+from scrapers._common import extract_dmY, format_dmY, make_item
 
 BASE = "https://www.khangdien.com.vn"
+CBTT_PAGE = f"{BASE}/co-dong/cong-bo-thong-tin"
+BCCB_PAGE = f"{BASE}/co-dong/bao-cao-cao-bach"
+AJAX_URL = f"{BASE}/wp-admin/admin-ajax.php"
+IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
+KDH_TIMEOUT = 45
+KDH_RETRIES = 3
+KDH_RETRY_DELAY = 5
+LAST_RAW_COUNT = 0
 
 
-def fetch(source: dict, session: requests.Session) -> list[dict]:
-    page_url = source.get("url", f"{BASE}/co-dong/cong-bo-thong-tin")
+def _proxy() -> dict[str, str] | None:
+    raw = (os.environ.get("KDH_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
+    if not raw:
+        return None
+    return {"http": raw, "https": raw}
 
-    def _page(page: int) -> list[dict]:
-        params = {"page": page} if page > 1 else None
+
+def _get_html(url: str, referer: str, label: str) -> str:
+    proxies = _proxy()
+    last_error: Exception | None = None
+
+    for attempt in range(1, KDH_RETRIES + 1):
+        profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
+        session = curl_requests.Session(impersonate=profile)
         try:
-            resp = session.get(page_url, params=params, timeout=20)
+            resp = session.get(
+                url,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Referer": referer,
+                },
+                timeout=KDH_TIMEOUT,
+                proxies=proxies,
+            )
+            if resp.status_code == 403:
+                raise RuntimeError("HTTP 403 Forbidden")
             resp.raise_for_status()
-            resp.encoding = resp.apparent_encoding or "utf-8"
+            return resp.text
         except Exception as e:
-            print(f"    KDH page {page}: {e}")
-            return []
+            last_error = e
+            if attempt < KDH_RETRIES:
+                print(
+                    f"    KDH {profile} {label}: lỗi lần {attempt}/{KDH_RETRIES}: {e}"
+                    f" — thử lại sau {KDH_RETRY_DELAY}s"
+                )
+                time.sleep(KDH_RETRY_DELAY)
+        finally:
+            session.close()
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items: list[dict] = []
-        seen: set[str] = set()
+    raise RuntimeError(f"KDH {label}: {last_error}") from last_error
 
-        for a in soup.select('a[href*=".pdf"]'):
-            link = a.get("href", "").strip()
-            if not link or link in seen:
+
+def _post_ajax(data: dict, referer: str, label: str) -> str:
+    proxies = _proxy()
+    last_error: Exception | None = None
+
+    for attempt in range(1, KDH_RETRIES + 1):
+        profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
+        session = curl_requests.Session(impersonate=profile)
+        try:
+            resp = session.post(
+                AJAX_URL,
+                data=data,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Referer": referer,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                timeout=KDH_TIMEOUT,
+                proxies=proxies,
+            )
+            if resp.status_code == 403:
+                raise RuntimeError("HTTP 403 Forbidden")
+            resp.raise_for_status()
+            if len(resp.text.strip()) < 20:
+                raise RuntimeError("AJAX trả về rỗng")
+            return resp.text
+        except Exception as e:
+            last_error = e
+            if attempt < KDH_RETRIES:
+                print(
+                    f"    KDH {profile} {label}: lỗi lần {attempt}/{KDH_RETRIES}: {e}"
+                    f" — thử lại sau {KDH_RETRY_DELAY}s"
+                )
+                time.sleep(KDH_RETRY_DELAY)
+        finally:
+            session.close()
+
+    raise RuntimeError(f"KDH {label}: {last_error}") from last_error
+
+
+def _year_term_id(page_html: str, year: int) -> str:
+    soup = BeautifulSoup(page_html, "html.parser")
+    for opt in soup.select("#chonnamdexem option"):
+        if opt.get_text(strip=True) == str(year):
+            value = (opt.get("value") or "").strip()
+            if value and value.isdigit():
+                return value
+    raise RuntimeError(f"Không tìm thấy năm {year} trên trang CBTT")
+
+
+def _parse_pdf_links(html: str, year: int | None = None) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    for a in soup.select('a[href*=".pdf"]'):
+        link = (a.get("href") or "").strip()
+        if not link or link in seen:
+            continue
+        if not link.startswith("http"):
+            link = BASE + link
+        seen.add(link)
+
+        title = a.get_text(" ", strip=True)
+        if not title or len(title) < 5:
+            continue
+
+        date = ""
+        parent = a.parent
+        for _ in range(5):
+            if not parent:
+                break
+            date = extract_dmY(parent.get_text(" ", strip=True))
+            if date:
+                break
+            parent = parent.parent
+        if not date:
+            m = re.search(r"/(20\d{2})/(\d{2})/(\d{2})/", link)
+            if m:
+                date = format_dmY(m.group(3), m.group(2), m.group(1))
+
+        if year is not None:
+            dt = parse_item_date(date)
+            if dt is None or dt.year != year:
                 continue
-            if not link.startswith("http"):
-                link = BASE + link
-            seen.add(link)
 
-            title = a.get_text(" ", strip=True)
-            if not title or len(title) < 5:
+        items.append(make_item(title, link, date))
+
+    return items
+
+
+def _discover_bccb_pages(main_html: str, bccb_page: str) -> list[str]:
+    soup = BeautifulSoup(main_html, "html.parser")
+    pages = {bccb_page.rstrip("/")}
+    prefix = bccb_page.rstrip("/") + "/"
+    for a in soup.select('a.viewmore[href], a[href*="bao-cao-cao-bach/"]'):
+        href = (a.get("href") or "").strip()
+        if not href.startswith("http"):
+            href = BASE + href
+        if href.rstrip("/") == bccb_page.rstrip("/"):
+            continue
+        if prefix in href:
+            pages.add(href.rstrip("/"))
+    return sorted(pages)
+
+
+def _fetch_cbtt(cbtt_page: str, year: int) -> list[dict]:
+    page_html = _get_html(cbtt_page, cbtt_page, "CBTT page")
+    year_id = _year_term_id(page_html, year)
+    ajax_html = _post_ajax(
+        {"action": "vts_ajax_show_data", "nam": year_id},
+        cbtt_page,
+        "CBTT AJAX",
+    )
+    return _parse_pdf_links(ajax_html)
+
+
+def _fetch_bccb(bccb_page: str, year: int) -> list[dict]:
+    main_html = _get_html(bccb_page, bccb_page, "BCCB page")
+    pages = _discover_bccb_pages(main_html, bccb_page)
+    merged: list[dict] = []
+    seen: set[str] = set()
+
+    for page_url in pages:
+        html = main_html if page_url.rstrip("/") == bccb_page.rstrip("/") else _get_html(
+            page_url, bccb_page, f"BCCB {page_url.rsplit('/', 1)[-1]}"
+        )
+        for item in _parse_pdf_links(html, year=year):
+            if item["uid"] in seen:
                 continue
+            seen.add(item["uid"])
+            merged.append(item)
 
-            date = ""
-            parent = a.parent
-            for _ in range(4):
-                if not parent:
-                    break
-                date = extract_dmY(parent.get_text(" ", strip=True))
-                if date:
-                    break
-                parent = parent.parent
-            if not date:
-                dm = re.search(r"/(20\d{2})/(\d{2})/(\d{2})/", link)
-                if dm:
-                    date = format_dmY(dm.group(3), dm.group(2), dm.group(1))
+    return merged
 
-            items.append(make_item(title, link, date))
-        return items
 
-    return paginate_until_recent(_page)
+def fetch(source: dict, session) -> list[dict]:
+    global LAST_RAW_COUNT
+
+    year = datetime.now().year
+    cbtt_page = source.get("url", CBTT_PAGE)
+    bccb_page = source.get("bccb_page", BCCB_PAGE)
+
+    merged: list[dict] = []
+    seen: set[str] = set()
+
+    cbtt_items = _fetch_cbtt(cbtt_page, year)
+    for item in cbtt_items:
+        if item["uid"] not in seen:
+            seen.add(item["uid"])
+            merged.append(item)
+
+    try:
+        bccb_items = _fetch_bccb(bccb_page, year)
+    except RuntimeError as e:
+        print(f"    {e} — bỏ qua BCCB lần này")
+        bccb_items = []
+
+    for item in bccb_items:
+        if item["uid"] not in seen:
+            seen.add(item["uid"])
+            merged.append(item)
+
+    LAST_RAW_COUNT = len(merged)
+    return filter_recent_items(merged)

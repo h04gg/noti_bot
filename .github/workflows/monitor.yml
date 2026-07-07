@@ -53,6 +53,12 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Tùy chọn: proxy VN/residential khi BVSC chặn IP datacenter GHA
+          BVSC_HTTP_PROXY: ${{ secrets.BVSC_HTTP_PROXY }}
+          VCK_HTTP_PROXY: ${{ secrets.VCK_HTTP_PROXY }}
+          KSF_HTTP_PROXY: ${{ secrets.KSF_HTTP_PROXY }}
+          KDH_HTTP_PROXY: ${{ secrets.KDH_HTTP_PROXY }}
+          DIC_HTTP_PROXY: ${{ secrets.DIC_HTTP_PROXY }}
         run: python monitor.py
 
       - name: Save error log

@@ -52,25 +52,28 @@ FETCH_RETRY_DELAY = 3  # giây
 
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
-def fetch_source(source: dict, session: requests.Session) -> tuple[list[dict] | None, str | None]:
-    """Trả về (items, error). items=None nghĩa là fetch thất bại sau retry."""
+def fetch_source(
+    source: dict, session: requests.Session
+) -> tuple[list[dict] | None, str | None, int | None]:
+    """Trả về (items, error, raw_count). items=None nghĩa là fetch thất bại sau retry."""
     sid = source["id"]
     scraper = SCRAPER_MAP.get(sid)
     if not scraper:
         msg = "Không có scraper"
         print(f"  ⚠️  [{sid}] {msg}")
-        return None, msg
+        return None, msg, None
 
     print(f"  📡 [{sid}] Fetching...")
     last_error: Exception | None = None
     for attempt in range(1, FETCH_RETRIES + 1):
         try:
             items = scraper.fetch(source, session)
+            raw_count = getattr(scraper, "LAST_RAW_COUNT", None)
             if attempt > 1:
                 print(f"  ✅ [{sid}] {len(items)} items (sau {attempt} lần thử)")
             else:
                 print(f"  ✅ [{sid}] {len(items)} items")
-            return items, None
+            return items, None, raw_count
         except Exception as e:
             last_error = e
             if attempt < FETCH_RETRIES:
@@ -82,31 +85,34 @@ def fetch_source(source: dict, session: requests.Session) -> tuple[list[dict] | 
             else:
                 print(f"  ❌ [{sid}] Lỗi sau {FETCH_RETRIES} lần: {e}")
     err = str(last_error) if last_error else "Lỗi không xác định"
-    return None, err
+    return None, err, None
 
 
-def fetch_all_sources() -> tuple[dict[str, list[dict] | None], dict[str, str]]:
-    """Fetch tất cả nguồn song song. Trả về (kết quả, lỗi theo source id)."""
+def fetch_all_sources() -> tuple[dict[str, list[dict] | None], dict[str, str], dict[str, int]]:
+    """Fetch tất cả nguồn song song. Trả về (kết quả, lỗi, raw_count trước lọc ngày)."""
     results: dict[str, list[dict] | None] = {}
     errors: dict[str, str] = {}
+    raw_counts: dict[str, int] = {}
 
-    def _fetch_one(source: dict) -> tuple[str, list[dict] | None, str | None]:
+    def _fetch_one(source: dict) -> tuple[str, list[dict] | None, str | None, int | None]:
         session = requests.Session()
         session.headers.update(HEADERS)
         sid = source["id"]
-        items, error = fetch_source(source, session)
-        return sid, items, error
+        items, error, raw_count = fetch_source(source, session)
+        return sid, items, error, raw_count
 
     print(f"📡 Fetching {len(SOURCES)} nguồn song song (workers={FETCH_WORKERS})...\n")
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as executor:
         futures = [executor.submit(_fetch_one, source) for source in SOURCES]
         for future in as_completed(futures):
-            sid, items, error = future.result()
+            sid, items, error, raw_count = future.result()
             results[sid] = items
             if error:
                 errors[sid] = error
+            if raw_count is not None:
+                raw_counts[sid] = raw_count
 
-    return results, errors
+    return results, errors, raw_counts
 
 
 # ── State management ───────────────────────────────────────────────────────────
@@ -267,9 +273,16 @@ def send_new_items(source: dict, new_items: list[dict]) -> bool:
     return ok
 
 
-def _suspect_empty_fetch(sid: str, items: list[dict] | None, known: dict[str, set[str]]) -> str | None:
+def _suspect_empty_fetch(
+    sid: str,
+    items: list[dict] | None,
+    known: dict[str, set[str]],
+    raw_count: int | None = None,
+) -> str | None:
     """Nguồn từng có tin nhưng lần này trả 0 — có thể bị chặn im lặng."""
     if items is None or items:
+        return None
+    if raw_count and raw_count > 0:
         return None
     if len(known.get(sid, set())) < 1:
         return None
@@ -317,13 +330,15 @@ def main():
     current_all: dict[str, list[dict]] = {}
     total_new = 0
 
-    fetch_results, fetch_errors = fetch_all_sources()
+    fetch_results, fetch_errors, fetch_raw_counts = fetch_all_sources()
     fetch_warnings: dict[str, str] = {}
     for source in SOURCES:
         sid = source["id"]
         if sid in fetch_errors:
             continue
-        warn = _suspect_empty_fetch(sid, fetch_results.get(sid), known)
+        warn = _suspect_empty_fetch(
+            sid, fetch_results.get(sid), known, fetch_raw_counts.get(sid)
+        )
         if warn:
             fetch_warnings[sid] = warn
     record_fetch_issues_for_run(
