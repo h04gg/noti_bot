@@ -41,8 +41,9 @@ SOURCES = [
         "name": "Hoàng Huy",
         "emoji": "🏗️",
         "category": "bds",
-        "url": "https://www.hoanghuy.vn/quan-he-co-dong/",
-        "source_page": "https://www.hoanghuy.vn/quan-he-co-dong/",
+        "url": "https://www.hoanghuy.vn/cong-bo-thong-tin/",
+        "bctc_page": "https://www.hoanghuy.vn/bao-cao-tai-chinh/",
+        "source_page": "https://www.hoanghuy.vn/cong-bo-thong-tin/",
     },
     {
         "id": "dic",

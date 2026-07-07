@@ -59,6 +59,7 @@ jobs:
           KSF_HTTP_PROXY: ${{ secrets.KSF_HTTP_PROXY }}
           KDH_HTTP_PROXY: ${{ secrets.KDH_HTTP_PROXY }}
           DIC_HTTP_PROXY: ${{ secrets.DIC_HTTP_PROXY }}
+          HOANGHUY_HTTP_PROXY: ${{ secrets.HOANGHUY_HTTP_PROXY }}
         run: python monitor.py
 
       - name: Save error log
