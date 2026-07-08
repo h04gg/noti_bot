@@ -24,8 +24,10 @@ def _investor_url(template: str, year: int) -> str:
     return re.sub(r"/\d{4}/", f"/{year}/", tpl, count=1)
 
 
-def _csrf_headers(session: requests.Session, page_url: str) -> dict[str, str]:
-    resp = session.get(page_url, timeout=25, verify=False)
+def _csrf_headers(session: requests.Session, page_url: str, *, refresh: bool = False) -> dict[str, str]:
+    if refresh:
+        session.cookies.clear()
+    resp = session.get(page_url, timeout=40, verify=False)
     resp.raise_for_status()
     token_el = BeautifulSoup(resp.text, "html.parser").find(
         "input", {"name": "__RequestVerificationToken"}
@@ -55,9 +57,17 @@ def _fetch_messages(session: requests.Session, source: dict, year: int) -> list[
             api_resp = session.get(
                 f"{BASE}/api/GetListMessage/{page}/{year}",
                 headers=headers,
-                timeout=20,
+                timeout=30,
                 verify=False,
             )
+            if api_resp.status_code == 403 and page > 1:
+                headers = _csrf_headers(session, page_url, refresh=True)
+                api_resp = session.get(
+                    f"{BASE}/api/GetListMessage/{page}/{year}",
+                    headers=headers,
+                    timeout=30,
+                    verify=False,
+                )
             api_resp.raise_for_status()
             data = api_resp.json()
         except Exception as e:
@@ -148,7 +158,19 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
     merged: list[dict] = []
     seen_uids: set[str] = set()
 
-    cbtt_items = _fetch_messages(session, source, year)
+    cbtt_items: list[dict] = []
+    for fetch_year in (year, year - 1):
+        try:
+            batch = _fetch_messages(session, source, fetch_year)
+            if batch:
+                cbtt_items = batch
+                break
+        except RuntimeError as e:
+            if fetch_year == year:
+                print(f"    {e}")
+            if fetch_year == year - 1:
+                raise
+
     for item in cbtt_items:
         if item["uid"] in seen_uids:
             continue

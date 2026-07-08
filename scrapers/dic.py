@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 from datetime import datetime
 
@@ -11,9 +12,10 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
 
 from config import RECENT_DAYS
-from filters import filter_recent_items, newest_item_date, parse_item_date, recent_cutoff
-from scrapers._common import make_item
+from filters import newest_item_date, parse_item_date, recent_cutoff
+from scrapers._common import finalize_fetch, make_item
 
+_MOD = sys.modules[__name__]
 BASE = "https://www.dic.vn"
 CBTT_PAGE = f"{BASE}/cong-bo-thong-tin"
 BCTC_PAGE = f"{BASE}/bao-cao-tai-chinh"
@@ -30,6 +32,13 @@ def _proxy() -> dict[str, str] | None:
     if not raw:
         return None
     return {"http": raw, "https": raw}
+
+
+def _is_blocked(status_code: int, html: str) -> bool:
+    if status_code == 403:
+        return True
+    low = (html or "").lower()
+    return "just a moment" in low or "challenge-platform" in low or "access denied" in low
 
 
 def _get_html(url: str, page: int, referer: str, label: str) -> str:
@@ -52,8 +61,8 @@ def _get_html(url: str, page: int, referer: str, label: str) -> str:
                 timeout=DIC_TIMEOUT,
                 proxies=proxies,
             )
-            if resp.status_code == 403:
-                raise RuntimeError("HTTP 403 Forbidden")
+            if _is_blocked(resp.status_code, resp.text):
+                raise RuntimeError("HTTP 403 Forbidden / Cloudflare")
             resp.raise_for_status()
             return resp.text
         except Exception as e:
@@ -80,7 +89,7 @@ def _extract_date(anchor) -> str:
     return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{m.group(3)}"
 
 
-def _parse_page(html: str, path_key: str, year: int) -> list[dict]:
+def _parse_page(html: str, path_key: str, min_year: int) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     items: list[dict] = []
     seen: set[str] = set()
@@ -101,7 +110,7 @@ def _parse_page(html: str, path_key: str, year: int) -> list[dict]:
 
         date = _extract_date(a)
         dt = parse_item_date(date)
-        if dt is None or dt.year != year:
+        if dt is not None and dt.year < min_year:
             continue
 
         items.append(make_item(title, link, date))
@@ -110,7 +119,7 @@ def _parse_page(html: str, path_key: str, year: int) -> list[dict]:
 
 
 def _fetch_section(
-    page_url: str, path_key: str, referer: str, label: str, year: int
+    page_url: str, path_key: str, referer: str, label: str, min_year: int
 ) -> list[dict]:
     all_items: list[dict] = []
 
@@ -123,8 +132,10 @@ def _fetch_section(
                 raise
             break
 
-        page_items = _parse_page(html, path_key, year)
+        page_items = _parse_page(html, path_key, min_year)
         if not page_items:
+            if page == 1:
+                raise RuntimeError(f"DIC {label} page 1: không parse được tin (có thể bị chặn)")
             break
 
         all_items.extend(page_items)
@@ -135,16 +146,15 @@ def _fetch_section(
 
         dates = [parse_item_date(item.get("date", "")) for item in page_items]
         dates = [dt for dt in dates if dt is not None]
-        if dates and min(dates).year < year:
+        if dates and min(dates).year < min_year:
             break
 
     return all_items
 
 
 def fetch(source: dict, session) -> list[dict]:
-    global LAST_RAW_COUNT
-
     year = datetime.now().year
+    min_year = year - 1
     cbtt_page = source.get("url", CBTT_PAGE)
     bctc_page = source.get("bctc_page", BCTC_PAGE)
 
@@ -152,7 +162,7 @@ def fetch(source: dict, session) -> list[dict]:
     seen: set[str] = set()
 
     cbtt_items = _fetch_section(
-        cbtt_page, "cong-bo-thong-tin/", cbtt_page, "CBTT", year
+        cbtt_page, "cong-bo-thong-tin/", cbtt_page, "CBTT", min_year
     )
     for item in cbtt_items:
         if item["uid"] not in seen:
@@ -161,7 +171,7 @@ def fetch(source: dict, session) -> list[dict]:
 
     try:
         bctc_items = _fetch_section(
-            bctc_page, "bao-cao-tai-chinh/", bctc_page, "BCTC", year
+            bctc_page, "bao-cao-tai-chinh/", bctc_page, "BCTC", min_year
         )
     except RuntimeError as e:
         print(f"    {e} — bỏ qua BCTC lần này")
@@ -172,5 +182,5 @@ def fetch(source: dict, session) -> list[dict]:
             seen.add(item["uid"])
             merged.append(item)
 
-    LAST_RAW_COUNT = len(merged)
-    return filter_recent_items(merged)
+    print(f"    DIC CBTT: {len(cbtt_items)}, BCTC: {len(bctc_items)}")
+    return finalize_fetch(_MOD, merged)

@@ -151,33 +151,51 @@ def _fetch_bctc_news_list(session: requests.Session, bctc_page: str, bctc_api: s
 
     resp = session.get(bctc_page, timeout=25)
     resp.raise_for_status()
-    _merge(_news_entries_from_payload(_parse_next_data(resp.text)))
+    page_data = _parse_next_data(resp.text)
+    page_props = (page_data.get("props") or {}).get("pageProps") or {}
+    _merge(_news_entries_from_payload(page_data))
 
+    cate_id = (
+        page_props.get("cateId")
+        or source_cate_id(page_props)
+        or "10111"
+    )
     api_resp = session.get(
         bctc_api,
+        params={"CategoryId": str(cate_id), "Lang": "vi"},
         headers={"Referer": bctc_page},
         timeout=25,
     )
-    api_resp.raise_for_status()
-    for doc in api_resp.json().get("Items") or []:
-        slug = (doc.get("SEOUrl") or "").strip()
-        title = (doc.get("Title") or "").strip()
-        if not slug or not title:
-            continue
-        _merge(
-            [
-                {
-                    "title": title,
-                    "seo_url": slug,
-                    "date": _date_from_ms(doc.get("ScheduleTime") or doc.get("CreatedDate")),
-                }
-            ]
-        )
+    if api_resp.status_code == 400:
+        print(f"    F88 BCTC API: 400 với CategoryId={cate_id}, dùng SSR")
+    else:
+        api_resp.raise_for_status()
+        for doc in api_resp.json().get("Items") or []:
+            slug = (doc.get("SEOUrl") or "").strip()
+            title = (doc.get("Title") or "").strip()
+            if not slug or not title:
+                continue
+            _merge(
+                [
+                    {
+                        "title": title,
+                        "seo_url": slug,
+                        "date": _date_from_ms(doc.get("ScheduleTime") or doc.get("CreatedDate")),
+                    }
+                ]
+            )
 
     if not entries:
         raise RuntimeError("F88 BCTC: không lấy được danh sách tin")
 
     return entries
+
+
+def source_cate_id(page_props: dict) -> str | None:
+    category = page_props.get("category")
+    if isinstance(category, dict):
+        return str(category.get("Id") or category.get("id") or "") or None
+    return None
 
 
 def _parse_detail_pdfs(content_html: str, fallback_title: str, date: str) -> list[dict]:
@@ -270,11 +288,16 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
 
     cbtt_count = len(items)
     session.headers["Referer"] = bctc_page
-    for item in _fetch_bctc(session, bctc_page, bctc_api):
+    try:
+        bctc_batch = _fetch_bctc(session, bctc_page, bctc_api)
+    except RuntimeError as e:
+        print(f"    {e} — bỏ qua BCTC lần này")
+        bctc_batch = []
+    for item in bctc_batch:
         if item["link"] in seen:
             continue
         seen.add(item["link"])
         items.append(item)
 
     print(f"    F88 CBTT: {cbtt_count}, BCTC: {len(items) - cbtt_count}")
-    return finalize_fetch(_MOD, items, filter_recent=True)
+    return finalize_fetch(_MOD, items)

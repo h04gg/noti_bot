@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 from datetime import datetime
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
 
-from filters import filter_recent_items, parse_item_date
-from scrapers._common import extract_dmY, format_dmY, make_item
+from filters import parse_item_date
+from scrapers._common import extract_dmY, finalize_fetch, format_dmY, make_item
 
+_MOD = sys.modules[__name__]
 BASE = "https://www.khangdien.com.vn"
 CBTT_PAGE = f"{BASE}/co-dong/cong-bo-thong-tin"
 BCCB_PAGE = f"{BASE}/co-dong/bao-cao-cao-bach"
@@ -107,14 +109,21 @@ def _post_ajax(data: dict, referer: str, label: str) -> str:
     raise RuntimeError(f"KDH {label}: {last_error}") from last_error
 
 
-def _year_term_id(page_html: str, year: int) -> str:
+def _year_term_id(page_html: str, years: list[int]) -> tuple[str, int]:
     soup = BeautifulSoup(page_html, "html.parser")
-    for opt in soup.select("#chonnamdexem option"):
-        if opt.get_text(strip=True) == str(year):
-            value = (opt.get("value") or "").strip()
-            if value and value.isdigit():
-                return value
-    raise RuntimeError(f"Không tìm thấy năm {year} trên trang CBTT")
+    options = {
+        opt.get_text(strip=True): (opt.get("value") or "").strip()
+        for opt in soup.select("#chonnamdexem option")
+    }
+    for year in years:
+        value = options.get(str(year), "")
+        if value and value.isdigit():
+            return value, year
+    available = [k for k, v in options.items() if k.isdigit() and v.isdigit()]
+    raise RuntimeError(
+        f"Không tìm thấy năm {years[0]} trên trang CBTT"
+        + (f" (có: {', '.join(available[:5])})" if available else " (dropdown rỗng)")
+    )
 
 
 def _parse_pdf_links(html: str, year: int | None = None) -> list[dict]:
@@ -150,7 +159,7 @@ def _parse_pdf_links(html: str, year: int | None = None) -> list[dict]:
 
         if year is not None:
             dt = parse_item_date(date)
-            if dt is None or dt.year != year:
+            if dt is not None and dt.year < year - 1:
                 continue
 
         items.append(make_item(title, link, date))
@@ -175,11 +184,13 @@ def _discover_bccb_pages(main_html: str, bccb_page: str) -> list[str]:
 
 def _fetch_cbtt(cbtt_page: str, year: int) -> list[dict]:
     page_html = _get_html(cbtt_page, cbtt_page, "CBTT page")
-    year_id = _year_term_id(page_html, year)
+    if "#chonnamdexem" not in page_html:
+        raise RuntimeError("KDH CBTT: không thấy dropdown năm (có thể bị chặn)")
+    year_id, picked_year = _year_term_id(page_html, [year, year - 1])
     ajax_html = _post_ajax(
         {"action": "vts_ajax_show_data", "nam": year_id},
         cbtt_page,
-        "CBTT AJAX",
+        f"CBTT AJAX {picked_year}",
     )
     return _parse_pdf_links(ajax_html)
 
@@ -204,8 +215,6 @@ def _fetch_bccb(bccb_page: str, year: int) -> list[dict]:
 
 
 def fetch(source: dict, session) -> list[dict]:
-    global LAST_RAW_COUNT
-
     year = datetime.now().year
     cbtt_page = source.get("url", CBTT_PAGE)
     bccb_page = source.get("bccb_page", BCCB_PAGE)
@@ -230,5 +239,5 @@ def fetch(source: dict, session) -> list[dict]:
             seen.add(item["uid"])
             merged.append(item)
 
-    LAST_RAW_COUNT = len(merged)
-    return filter_recent_items(merged)
+    print(f"    KDH CBTT: {len(cbtt_items)}, BCCB: {len(bccb_items)}")
+    return finalize_fetch(_MOD, merged)

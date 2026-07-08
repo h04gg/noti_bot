@@ -92,7 +92,9 @@ def _doc_link(acf: dict) -> str:
 
 def _is_current_year(date_str: str, year: int) -> bool:
     dt = parse_item_date(date_from_iso(date_str))
-    return dt is not None and dt.year == year
+    if dt is None:
+        return True
+    return dt.year >= year - 1
 
 
 def _parse_docs(payload: dict, year: int) -> list[dict]:
@@ -128,6 +130,9 @@ def _parse_docs(payload: dict, year: int) -> list[dict]:
 
 def _fetch_feed(api_url: str, referer: str, label: str, year: int) -> list[dict]:
     payload = _get_api_payload(api_url, referer, label)
+    docs = payload.get("data") or []
+    if not docs:
+        raise RuntimeError(f"KSF {label}: API trả về 0 bản ghi")
     return _parse_docs(payload, year)
 
 
@@ -154,4 +159,4 @@ def fetch(source: dict, session) -> list[dict]:
             merged.append(item)
 
     print(f"    KSF CBTT: {len(cbtt_items)}, BCTC: {len(bctc_items)} (năm {year})")
-    return finalize_fetch(_MOD, merged, filter_recent=True)
+    return finalize_fetch(_MOD, merged)

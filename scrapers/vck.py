@@ -30,9 +30,9 @@ SECTIONS = (
 )
 
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
-VCK_TIMEOUT = 45
-VCK_RETRIES = 3
-VCK_RETRY_DELAY = 5
+VCK_TIMEOUT = 90
+VCK_RETRIES = 4
+VCK_RETRY_DELAY = 8
 
 _POST_RE = re.compile(
     r'"publishedAt":"([^"]+)".*?"contents":\[\{"title":"((?:\\.|[^"\\])*)","slug":"([^"]+)"',
@@ -78,6 +78,12 @@ def _get_rsc_text(page_path: str, year: int, page: int, label: str) -> str:
         profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
         session = curl_requests.Session(impersonate=profile)
         try:
+            session.get(
+                f"{BASE}/quan-he-co-dong",
+                timeout=VCK_TIMEOUT,
+                proxies=proxies,
+                headers={"Accept-Language": "vi-VN,vi;q=0.9"},
+            )
             resp = session.get(
                 f"{BASE}{page_path}",
                 params=params,
@@ -192,4 +198,4 @@ def fetch(source: dict, session) -> list[dict]:
 
     if counts:
         print(f"    VCK {', '.join(counts)} (năm {year})")
-    return finalize_fetch(_MOD, merged, filter_recent=True)
+    return finalize_fetch(_MOD, merged)

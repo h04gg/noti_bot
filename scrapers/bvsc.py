@@ -76,6 +76,19 @@ def _with_retry(label: str, page: int, action):
     raise RuntimeError(f"BVSC {label} page {page}: {last_error}") from last_error
 
 
+def _parse_json_response(resp: curl_requests.Response, label: str) -> dict:
+    text = (resp.text or "").strip()
+    if not text:
+        raise RuntimeError(f"{label}: phản hồi rỗng (có thể bị chặn)")
+    ctype = (resp.headers.get("content-type") or "").lower()
+    if "json" not in ctype and text.startswith("<"):
+        raise RuntimeError(f"{label}: nhận HTML thay vì JSON (có thể bị chặn)")
+    try:
+        return resp.json()
+    except Exception as e:
+        raise RuntimeError(f"{label}: JSON không hợp lệ — {e}") from e
+
+
 def _get_api_data(api_url: str, params: dict, page: int, source_page: str) -> dict:
     def _action(session: curl_requests.Session, proxies: dict[str, str] | None) -> dict:
         session.get(source_page, timeout=BVSC_TIMEOUT, proxies=proxies)
@@ -89,7 +102,7 @@ def _get_api_data(api_url: str, params: dict, page: int, source_page: str) -> di
         if resp.status_code == 403:
             raise RuntimeError("HTTP 403 Forbidden")
         resp.raise_for_status()
-        data = resp.json()
+        data = _parse_json_response(resp, "BVSC CBTT API")
         if not data.get("success"):
             msg = data.get("message") or data.get("error") or "success=false"
             raise RuntimeError(f"API {msg}")
@@ -117,14 +130,28 @@ def _get_html(source_page: str) -> str:
 def fetch(source: dict, session) -> list[dict]:
     seen: set[str] = set()
     merged: list[dict] = []
+    cbtt_items: list[dict] = []
+    bctc_items: list[dict] = []
 
-    for item in _fetch_cbtt(source) + _fetch_bctc(source):
+    try:
+        cbtt_items = _fetch_cbtt(source)
+    except RuntimeError as e:
+        print(f"    {e}")
+        raise
+
+    try:
+        bctc_items = _fetch_bctc(source)
+    except RuntimeError as e:
+        print(f"    {e} — bỏ qua BCTC lần này")
+
+    for item in cbtt_items + bctc_items:
         if item["uid"] in seen:
             continue
         seen.add(item["uid"])
         merged.append(item)
 
-    return finalize_fetch(_MOD, merged, filter_recent=True)
+    print(f"    BVSC CBTT: {len(cbtt_items)}, BCTC: {len(bctc_items)}")
+    return finalize_fetch(_MOD, merged)
 
 
 def _fetch_cbtt(source: dict) -> list[dict]:
@@ -197,7 +224,10 @@ def _fetch_bctc(source: dict) -> list[dict]:
         print(f"    {e}")
         raise
 
-    return _parse_bctc_html(html, year)
+    items = _parse_bctc_html(html, year)
+    if not items:
+        print(f"    BVSC BCTC: không có tin năm {year}")
+    return items
 
 
 def _parse_bctc_html(html: str, year: str) -> list[dict]:
