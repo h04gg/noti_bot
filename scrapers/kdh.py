@@ -20,9 +20,10 @@ CBTT_PAGE = f"{BASE}/co-dong/cong-bo-thong-tin"
 BCCB_PAGE = f"{BASE}/co-dong/bao-cao-cao-bach"
 AJAX_URL = f"{BASE}/wp-admin/admin-ajax.php"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
-KDH_TIMEOUT = 45
-KDH_RETRIES = 3
-KDH_RETRY_DELAY = 5
+KDH_TIMEOUT = 60
+KDH_RETRIES = 4
+KDH_RETRY_DELAY = 6
+HOME_URL = f"{BASE}/"
 LAST_RAW_COUNT = 0
 
 
@@ -33,6 +34,13 @@ def _proxy() -> dict[str, str] | None:
     return {"http": raw, "https": raw}
 
 
+def _is_blocked(status_code: int, html: str) -> bool:
+    if status_code == 403:
+        return True
+    low = (html or "").lower()
+    return "just a moment" in low or "challenge-platform" in low or "access denied" in low
+
+
 def _get_html(url: str, referer: str, label: str) -> str:
     proxies = _proxy()
     last_error: Exception | None = None
@@ -41,6 +49,12 @@ def _get_html(url: str, referer: str, label: str) -> str:
         profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
         session = curl_requests.Session(impersonate=profile)
         try:
+            session.get(
+                HOME_URL,
+                headers={"Accept-Language": "vi-VN,vi;q=0.9"},
+                timeout=KDH_TIMEOUT,
+                proxies=proxies,
+            )
             resp = session.get(
                 url,
                 headers={
@@ -53,6 +67,8 @@ def _get_html(url: str, referer: str, label: str) -> str:
             )
             if resp.status_code == 403:
                 raise RuntimeError("HTTP 403 Forbidden")
+            if _is_blocked(resp.status_code, resp.text):
+                raise RuntimeError("HTTP 403 Forbidden / Cloudflare")
             resp.raise_for_status()
             return resp.text
         except Exception as e:
@@ -77,6 +93,7 @@ def _post_ajax(data: dict, referer: str, label: str) -> str:
         profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
         session = curl_requests.Session(impersonate=profile)
         try:
+            session.get(HOME_URL, timeout=KDH_TIMEOUT, proxies=proxies)
             resp = session.post(
                 AJAX_URL,
                 data=data,

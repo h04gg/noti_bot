@@ -16,8 +16,8 @@ _MOD = sys.modules[__name__]
 LAST_RAW_COUNT = 0
 PAGE_URL = "https://vinhomes.vn/vi/cong-bo-thong-tin"
 HOME_URL = "https://vinhomes.vn/vi"
-FETCH_RETRIES = 3
-RETRY_DELAY = 3
+FETCH_RETRIES = 4
+RETRY_DELAY = 5
 
 
 def _proxy() -> dict[str, str] | None:
@@ -79,7 +79,7 @@ def _fetch_url(url: str) -> tuple[int, str]:
         session = curl_requests.Session(impersonate=profile)
         try:
             _warm_session(session)
-            resp = session.get(url, timeout=30, proxies=proxies)
+            resp = session.get(url, timeout=45, proxies=proxies)
             if _is_cloudflare_block(resp.status_code, resp.text):
                 raise RuntimeError(f"HTTP {resp.status_code} (Cloudflare chặn)")
             resp.raise_for_status()

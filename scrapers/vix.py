@@ -5,21 +5,46 @@ from __future__ import annotations
 import os
 import re
 import sys
+import time
 
-import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests as curl_requests
 
 from config import RECENT_DAYS
 from filters import parse_item_date, recent_cutoff
-from scrapers._common import extract_dmY, finalize_fetch, make_item, page_fetch_failed
+from scrapers._common import (
+    IMPERSONATE_PROFILES,
+    extract_dmY,
+    finalize_fetch,
+    make_item,
+    page_fetch_failed,
+)
 
 _MOD = sys.modules[__name__]
 LAST_RAW_COUNT = 0
 BASE = "https://vixs.vn"
+HOME_URL = f"{BASE}/"
 PAGE_PATH = "/qhcd/cong-bo-thong-tin"
 BCTC_PATH = "/bao-cao"
 DEFAULT_PARAMS = {"num": 20, "y": -1}
+VIX_TIMEOUT = 60
+VIX_RETRIES = 4
+VIX_RETRY_DELAY = 5
 _FILENAME_DATE_RE = re.compile(r"(20\d{2})(\d{2})(\d{2})")
+
+
+def _proxy() -> dict[str, str] | None:
+    raw = (os.environ.get("VIX_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
+    if not raw:
+        return None
+    return {"http": raw, "https": raw}
+
+
+def _is_blocked(status_code: int, html: str) -> bool:
+    if status_code == 403:
+        return True
+    low = (html or "").lower()
+    return "just a moment" in low or "challenge-platform" in low or "access denied" in low
 
 
 def _page_url(base_path: str, params: dict, page: int) -> str:
@@ -27,6 +52,48 @@ def _page_url(base_path: str, params: dict, page: int) -> str:
     if page <= 1:
         return f"{BASE}{base_path}?{query}"
     return f"{BASE}{base_path}/page/{page}?{query}"
+
+
+def _curl_get(url: str, referer: str, label: str) -> str:
+    proxies = _proxy()
+    last_error: Exception | None = None
+
+    for attempt in range(1, VIX_RETRIES + 1):
+        profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
+        session = curl_requests.Session(impersonate=profile)
+        try:
+            session.get(
+                HOME_URL,
+                headers={"Accept-Language": "vi-VN,vi;q=0.9"},
+                timeout=VIX_TIMEOUT,
+                proxies=proxies,
+            )
+            resp = session.get(
+                url,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Referer": referer,
+                },
+                timeout=VIX_TIMEOUT,
+                proxies=proxies,
+            )
+            if _is_blocked(resp.status_code, resp.text):
+                raise RuntimeError("HTTP 403 Forbidden / Cloudflare")
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e:
+            last_error = e
+            if attempt < VIX_RETRIES:
+                print(
+                    f"    VIX {profile} {label}: lỗi lần {attempt}/{VIX_RETRIES}: {e}"
+                    f" — thử lại sau {VIX_RETRY_DELAY}s"
+                )
+                time.sleep(VIX_RETRY_DELAY)
+        finally:
+            session.close()
+
+    raise RuntimeError(f"VIX {label}: {last_error}") from last_error
 
 
 def _parse_cbtt_html(html: str) -> list[dict]:
@@ -88,20 +155,23 @@ def _parse_bctc_html(html: str) -> list[dict]:
     return items
 
 
-def _fetch_cbtt(source: dict, session: requests.Session) -> list[dict]:
+def _fetch_cbtt(source: dict) -> list[dict]:
     path = source.get("path", PAGE_PATH)
     params = dict(source.get("params", DEFAULT_PARAMS))
+    referer = source.get("source_page", f"{BASE}{path}")
     all_items: list[dict] = []
 
     for page in range(1, 21):
         url = _page_url(path, params, page)
         try:
-            resp = session.get(url, timeout=25)
-            resp.raise_for_status()
-            resp.encoding = resp.apparent_encoding or "utf-8"
-        except Exception as e:
+            html = _curl_get(url, referer, f"CBTT page {page}")
+        except RuntimeError as e:
             page_fetch_failed(page, e, "VIX CBTT")
-        page_items = _parse_cbtt_html(resp.text)
+
+        if page == 1 and ".bic-report__title" not in html and "tbody" not in html:
+            page_fetch_failed(page, RuntimeError("HTML không hợp lệ (có thể bị chặn)"), "VIX CBTT")
+
+        page_items = _parse_cbtt_html(html)
         if not page_items:
             break
         all_items.extend(page_items)
@@ -113,24 +183,23 @@ def _fetch_cbtt(source: dict, session: requests.Session) -> list[dict]:
     return all_items
 
 
-def _fetch_bctc(session: requests.Session, bctc_path: str) -> list[dict]:
+def _fetch_bctc(bctc_path: str) -> list[dict]:
     url = f"{BASE}{bctc_path}"
+    referer = f"{BASE}{bctc_path}"
     try:
-        resp = session.get(url, timeout=30)
-        resp.raise_for_status()
-        resp.encoding = resp.apparent_encoding or "utf-8"
-    except Exception as e:
+        html = _curl_get(url, referer, "BCTC")
+    except RuntimeError as e:
         print(f"    VIX BCTC: {e}")
         raise RuntimeError(f"VIX BCTC: {e}") from e
-    return _parse_bctc_html(resp.text)
+    return _parse_bctc_html(html)
 
 
-def fetch(source: dict, session: requests.Session) -> list[dict]:
+def fetch(source: dict, session) -> list[dict]:
     bctc_path = source.get("bctc_path", BCTC_PATH)
 
-    cbtt_items = _fetch_cbtt(source, session)
+    cbtt_items = _fetch_cbtt(source)
     try:
-        bctc_items = _fetch_bctc(session, bctc_path)
+        bctc_items = _fetch_bctc(bctc_path)
     except RuntimeError:
         if not cbtt_items:
             raise

@@ -20,9 +20,9 @@ BASE = "https://www.dic.vn"
 CBTT_PAGE = f"{BASE}/cong-bo-thong-tin"
 BCTC_PAGE = f"{BASE}/bao-cao-tai-chinh"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
-DIC_TIMEOUT = 45
-DIC_RETRIES = 3
-DIC_RETRY_DELAY = 5
+DIC_TIMEOUT = 60
+DIC_RETRIES = 4
+DIC_RETRY_DELAY = 6
 MAX_PAGES = 30
 LAST_RAW_COUNT = 0
 
@@ -50,6 +50,12 @@ def _get_html(url: str, page: int, referer: str, label: str) -> str:
         profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
         session = curl_requests.Session(impersonate=profile)
         try:
+            session.get(
+                BASE,
+                headers={"Accept-Language": "vi-VN,vi;q=0.9"},
+                timeout=DIC_TIMEOUT,
+                proxies=proxies,
+            )
             resp = session.get(
                 url,
                 params=params,
@@ -64,6 +70,8 @@ def _get_html(url: str, page: int, referer: str, label: str) -> str:
             if _is_blocked(resp.status_code, resp.text):
                 raise RuntimeError("HTTP 403 Forbidden / Cloudflare")
             resp.raise_for_status()
+            if page == 1 and 'class="item"' not in resp.text and 'class="title"' not in resp.text:
+                raise RuntimeError("HTML không hợp lệ (có thể bị chặn)")
             return resp.text
         except Exception as e:
             last_error = e

@@ -21,9 +21,9 @@ API_URL = f"{BASE}/getPaginateCBTT_V2"
 CBTT_PAGE = f"{BASE}/danhmuc/quan-he-nha-dau-tu/cong-bo-thong-tin/"
 BCTC_PAGE = f"{BASE}/danhmuc/quan-he-nha-dau-tu/bao-cao-tai-chinh/"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
-BVSC_TIMEOUT = 30
-BVSC_RETRIES = 3
-BVSC_RETRY_DELAY = 3
+BVSC_TIMEOUT = 60
+BVSC_RETRIES = 4
+BVSC_RETRY_DELAY = 6
 LAST_RAW_COUNT = 0
 
 
@@ -91,7 +91,18 @@ def _parse_json_response(resp: curl_requests.Response, label: str) -> dict:
 
 def _get_api_data(api_url: str, params: dict, page: int, source_page: str) -> dict:
     def _action(session: curl_requests.Session, proxies: dict[str, str] | None) -> dict:
-        session.get(source_page, timeout=BVSC_TIMEOUT, proxies=proxies)
+        session.get(
+            BASE,
+            headers=_html_headers(BASE),
+            timeout=BVSC_TIMEOUT,
+            proxies=proxies,
+        )
+        session.get(
+            source_page,
+            headers=_html_headers(source_page),
+            timeout=BVSC_TIMEOUT,
+            proxies=proxies,
+        )
         resp = session.get(
             api_url,
             params=params,

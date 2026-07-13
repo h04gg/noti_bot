@@ -55,6 +55,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # Tùy chọn: proxy VN/residential khi IP datacenter GHA bị chặn
           HTTP_PROXY: ${{ secrets.HTTP_PROXY }}
+          VIX_HTTP_PROXY: ${{ secrets.VIX_HTTP_PROXY }}
           BVSC_HTTP_PROXY: ${{ secrets.BVSC_HTTP_PROXY }}
           VCK_HTTP_PROXY: ${{ secrets.VCK_HTTP_PROXY }}
           KSF_HTTP_PROXY: ${{ secrets.KSF_HTTP_PROXY }}
