@@ -1,4 +1,4 @@
-"""Scraper: Khang Điền (KDH) — WordPress AJAX CBTT + HTML Báo cáo & Cao bạch."""
+"""Scraper: Khang Điền (KDH) — HTML CBTT (SSR) + Báo cáo cao bạch."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ _MOD = sys.modules[__name__]
 BASE = "https://www.khangdien.com.vn"
 CBTT_PAGE = f"{BASE}/co-dong/cong-bo-thong-tin"
 BCCB_PAGE = f"{BASE}/co-dong/bao-cao-cao-bach"
-AJAX_URL = f"{BASE}/wp-admin/admin-ajax.php"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 KDH_TIMEOUT = 60
 KDH_RETRIES = 4
@@ -85,62 +84,8 @@ def _get_html(url: str, referer: str, label: str) -> str:
     raise RuntimeError(f"KDH {label}: {last_error}") from last_error
 
 
-def _post_ajax(data: dict, referer: str, label: str) -> str:
-    proxies = _proxy()
-    last_error: Exception | None = None
-
-    for attempt in range(1, KDH_RETRIES + 1):
-        profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
-        session = curl_requests.Session(impersonate=profile)
-        try:
-            session.get(HOME_URL, timeout=KDH_TIMEOUT, proxies=proxies)
-            resp = session.post(
-                AJAX_URL,
-                data=data,
-                headers={
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Referer": referer,
-                    "X-Requested-With": "XMLHttpRequest",
-                },
-                timeout=KDH_TIMEOUT,
-                proxies=proxies,
-            )
-            if resp.status_code == 403:
-                raise RuntimeError("HTTP 403 Forbidden")
-            resp.raise_for_status()
-            if len(resp.text.strip()) < 20:
-                raise RuntimeError("AJAX trả về rỗng")
-            return resp.text
-        except Exception as e:
-            last_error = e
-            if attempt < KDH_RETRIES:
-                print(
-                    f"    KDH {profile} {label}: lỗi lần {attempt}/{KDH_RETRIES}: {e}"
-                    f" — thử lại sau {KDH_RETRY_DELAY}s"
-                )
-                time.sleep(KDH_RETRY_DELAY)
-        finally:
-            session.close()
-
-    raise RuntimeError(f"KDH {label}: {last_error}") from last_error
-
-
-def _year_term_id(page_html: str, years: list[int]) -> tuple[str, int]:
-    soup = BeautifulSoup(page_html, "html.parser")
-    options = {
-        opt.get_text(strip=True): (opt.get("value") or "").strip()
-        for opt in soup.select("#chonnamdexem option")
-    }
-    for year in years:
-        value = options.get(str(year), "")
-        if value and value.isdigit():
-            return value, year
-    available = [k for k, v in options.items() if k.isdigit() and v.isdigit()]
-    raise RuntimeError(
-        f"Không tìm thấy năm {years[0]} trên trang CBTT"
-        + (f" (có: {', '.join(available[:5])})" if available else " (dropdown rỗng)")
-    )
+def _page_has_cbtt_list(html: str) -> bool:
+    return 'id="no-ajax"' in html or "stock-list" in html
 
 
 def _parse_pdf_links(html: str, year: int | None = None) -> list[dict]:
@@ -201,15 +146,12 @@ def _discover_bccb_pages(main_html: str, bccb_page: str) -> list[str]:
 
 def _fetch_cbtt(cbtt_page: str, year: int) -> list[dict]:
     page_html = _get_html(cbtt_page, cbtt_page, "CBTT page")
-    if "#chonnamdexem" not in page_html:
-        raise RuntimeError("KDH CBTT: không thấy dropdown năm (có thể bị chặn)")
-    year_id, picked_year = _year_term_id(page_html, [year, year - 1])
-    ajax_html = _post_ajax(
-        {"action": "vts_ajax_show_data", "nam": year_id},
-        cbtt_page,
-        f"CBTT AJAX {picked_year}",
-    )
-    return _parse_pdf_links(ajax_html)
+    if not _page_has_cbtt_list(page_html):
+        raise RuntimeError("KDH CBTT: không thấy danh sách tin (có thể bị chặn)")
+    items = _parse_pdf_links(page_html, year=year)
+    if not items:
+        raise RuntimeError("KDH CBTT: không parse được PDF (có thể bị chặn)")
+    return items
 
 
 def _fetch_bccb(bccb_page: str, year: int) -> list[dict]:
