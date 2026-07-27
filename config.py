@@ -3,7 +3,7 @@ Cấu hình các nguồn theo dõi IR
 """
 
 # Chỉ theo dõi tin trong N ngày gần nhất (áp dụng tự động cho mọi nguồn)
-RECENT_DAYS = 14
+RECENT_DAYS = 7
 
 CATEGORIES = {
     "bds": {"name": "Bất động sản", "emoji": "🏗️"},
@@ -357,6 +357,25 @@ SOURCES = [
             },
         ],
         "source_page": "https://bidv.com.vn/vn/quan-he-nha-dau-tu/thong-tin-co-dong",
+    },
+    {
+        "id": "tpb",
+        "name": "TPBank (TPB)",
+        "emoji": "🟣",
+        "category": "bank",
+        "feeds": [
+            {
+                "page_url": "https://tpb.vn/nha-dau-tu/thong-bao-co-dong",
+                "key": "thong-bao-co-dong",
+                "label": "TBCD",
+            },
+            {
+                "page_url": "https://tpb.vn/nha-dau-tu/bao-cao-tai-chinh",
+                "key": "bao-cao-tai-chinh",
+                "label": "BCTC",
+            },
+        ],
+        "source_page": "https://tpb.vn/nha-dau-tu/thong-bao-co-dong",
     },
     # ── Khác ──────────────────────────────────────────────────────────────────
     {

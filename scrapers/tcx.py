@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 from config import RECENT_DAYS
 from filters import parse_item_date, recent_cutoff
-from scrapers._common import extract_dmY, finalize_fetch, make_item, page_fetch_failed
+from scrapers._common import extract_dmY, finalize_fetch, make_item, page_fetch_failed, proxy_for
 
 _MOD = sys.modules[__name__]
 LAST_RAW_COUNT = 0
@@ -52,10 +52,13 @@ def _fetch_pages(
     max_pages: int = 20,
 ) -> list[dict]:
     all_items: list[dict] = []
+    proxies = proxy_for("tcx")
     for page in range(1, max_pages + 1):
         params = {"page": page} if page > 1 else None
         try:
-            resp = session.get(page_url, params=params, timeout=25, verify=False)
+            resp = session.get(
+                page_url, params=params, timeout=25, verify=False, proxies=proxies
+            )
             resp.raise_for_status()
         except Exception as e:
             page_fetch_failed(page, e, f"TCX {label}")

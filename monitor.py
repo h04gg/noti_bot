@@ -359,7 +359,7 @@ def main():
         items = filter_recent_items(items)
         print(
             f"  📅 [{sid}] {len(items)}/{raw_count} tin "
-            f"(trong {RECENT_DAYS} ngày / 2 tuần gần nhất)"
+            f"(trong {RECENT_DAYS} ngày gần nhất)"
         )
 
         current_all[sid] = items
@@ -386,7 +386,7 @@ def main():
             send_new_items(source, new_items)
             time.sleep(1)
 
-        # Gộp UID tin hiện tại (giữ UID cũ ngoài cửa sổ 14 ngày)
+        # Gộp UID tin hiện tại (giữ UID cũ ngoài cửa sổ RECENT_DAYS)
         merge_uids(known, sid, items)
         write_state(known)
         print()
