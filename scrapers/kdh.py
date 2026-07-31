@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 import time
@@ -20,17 +19,11 @@ CBTT_PAGE = f"{BASE}/co-dong/cong-bo-thong-tin"
 BCCB_PAGE = f"{BASE}/co-dong/bao-cao-cao-bach"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 KDH_TIMEOUT = 60
-KDH_RETRIES = 4
+KDH_RETRIES = 2
 KDH_RETRY_DELAY = 6
 HOME_URL = f"{BASE}/"
 LAST_RAW_COUNT = 0
 
-
-def _proxy() -> dict[str, str] | None:
-    raw = (os.environ.get("KDH_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
 
 
 def _is_blocked(status_code: int, html: str) -> bool:
@@ -41,7 +34,6 @@ def _is_blocked(status_code: int, html: str) -> bool:
 
 
 def _get_html(url: str, referer: str, label: str) -> str:
-    proxies = _proxy()
     last_error: Exception | None = None
 
     for attempt in range(1, KDH_RETRIES + 1):
@@ -52,7 +44,6 @@ def _get_html(url: str, referer: str, label: str) -> str:
                 HOME_URL,
                 headers={"Accept-Language": "vi-VN,vi;q=0.9"},
                 timeout=KDH_TIMEOUT,
-                proxies=proxies,
             )
             resp = session.get(
                 url,
@@ -62,7 +53,6 @@ def _get_html(url: str, referer: str, label: str) -> str:
                     "Referer": referer,
                 },
                 timeout=KDH_TIMEOUT,
-                proxies=proxies,
             )
             if resp.status_code == 403:
                 raise RuntimeError("HTTP 403 Forbidden")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from datetime import datetime
@@ -18,17 +17,11 @@ CBTT_PAGE = f"{BASE}/cong-bo-thong-tin/"
 BCTC_PAGE = f"{BASE}/bao-cao-tai-chinh/"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 HH_TIMEOUT = 45
-HH_RETRIES = 3
+HH_RETRIES = 2
 HH_RETRY_DELAY = 5
 MAX_PAGES = 15
 LAST_RAW_COUNT = 0
 
-
-def _proxy() -> dict[str, str] | None:
-    raw = (os.environ.get("HOANGHUY_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
 
 
 def _page_url(section_path: str, page: int) -> str:
@@ -39,7 +32,6 @@ def _page_url(section_path: str, page: int) -> str:
 
 
 def _get_html(url: str, referer: str, label: str, page: int) -> str:
-    proxies = _proxy()
     last_error: Exception | None = None
 
     for attempt in range(1, HH_RETRIES + 1):
@@ -54,7 +46,6 @@ def _get_html(url: str, referer: str, label: str, page: int) -> str:
                     "Referer": referer,
                 },
                 timeout=HH_TIMEOUT,
-                proxies=proxies,
             )
             if resp.status_code == 403:
                 raise RuntimeError("HTTP 403 Forbidden")

@@ -47,7 +47,7 @@ SCRAPER_MAP = _build_scraper_map()
 
 FETCH_WORKERS = min(16, len(SOURCES))
 
-FETCH_RETRIES = 3
+FETCH_RETRIES = 2
 FETCH_RETRY_DELAY = 3  # giây
 
 

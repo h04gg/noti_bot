@@ -12,7 +12,7 @@ from urllib.parse import unquote
 from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
 
-from scrapers._common import extract_dmY, finalize_fetch, make_item, proxy_for
+from scrapers._common import extract_dmY, finalize_fetch, make_item
 
 _MOD = sys.modules[__name__]
 LAST_RAW_COUNT = 0
@@ -21,7 +21,7 @@ BASE = "https://tpb.vn"
 WCM = f"{BASE}/wps/wcm/connect"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0")
 TIMEOUT = 45
-RETRIES = 3
+RETRIES = 2
 RETRY_DELAY = 4
 
 # Fallback nếu không parse được từ HTML trang / năm
@@ -142,7 +142,6 @@ def _get(session: curl_requests.Session, url: str, referer: str) -> str:
             "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
             "Referer": referer,
         },
-        proxies=proxy_for("tpb"),
     )
     if resp.status_code >= 400:
         raise RuntimeError(f"HTTP {resp.status_code}")
@@ -151,7 +150,7 @@ def _get(session: curl_requests.Session, url: str, referer: str) -> str:
 
 def _open_session(profile: str) -> curl_requests.Session:
     session = curl_requests.Session(impersonate=profile)
-    session.get(BASE, timeout=TIMEOUT, proxies=proxy_for("tpb"))
+    session.get(BASE, timeout=TIMEOUT)
     return session
 
 
@@ -251,7 +250,7 @@ def fetch(source: dict, session) -> list[dict]:
     seen: set[str] = set()
 
     try:
-        curl.get(BASE, timeout=TIMEOUT, proxies=proxy_for("tpb"))
+        curl.get(BASE, timeout=TIMEOUT)
         for feed in feeds:
             page_url = feed.get("page_url") or feed.get("url")
             label = feed.get("label", "FEED")

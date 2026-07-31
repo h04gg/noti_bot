@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 import time
@@ -31,7 +30,7 @@ SECTIONS = (
 
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 VCK_TIMEOUT = 90
-VCK_RETRIES = 4
+VCK_RETRIES = 2
 VCK_RETRY_DELAY = 8
 
 _POST_RE = re.compile(
@@ -41,12 +40,6 @@ _POST_RE = re.compile(
 _TOTAL_RE = re.compile(r'"total":(\d+)')
 _PAGE_SIZE_RE = re.compile(r'"pageSize":(\d+)')
 
-
-def _proxy() -> dict[str, str] | None:
-    raw = (os.environ.get("VCK_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
 
 
 def _router_state_tree(segment: str) -> str:
@@ -70,7 +63,6 @@ def _rsc_headers(page_path: str) -> dict[str, str]:
 
 
 def _get_rsc_text(page_path: str, year: int, page: int, label: str) -> str:
-    proxies = _proxy()
     params = {"year": year, "page": page}
     last_error: Exception | None = None
 
@@ -81,7 +73,6 @@ def _get_rsc_text(page_path: str, year: int, page: int, label: str) -> str:
             session.get(
                 f"{BASE}/quan-he-co-dong",
                 timeout=VCK_TIMEOUT,
-                proxies=proxies,
                 headers={"Accept-Language": "vi-VN,vi;q=0.9"},
             )
             resp = session.get(
@@ -89,7 +80,6 @@ def _get_rsc_text(page_path: str, year: int, page: int, label: str) -> str:
                 params=params,
                 headers=_rsc_headers(page_path),
                 timeout=VCK_TIMEOUT,
-                proxies=proxies,
             )
             if resp.status_code == 403:
                 raise RuntimeError("HTTP 403 Forbidden")

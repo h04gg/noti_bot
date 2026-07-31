@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import time
 import types
@@ -17,7 +16,7 @@ from config import RECENT_DAYS
 from filters import filter_recent_items, is_recent_item, parse_item_date, recent_cutoff
 
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
-CURL_RETRIES = 3
+CURL_RETRIES = 2
 CURL_RETRY_DELAY = 3
 
 
@@ -85,15 +84,6 @@ def date_from_iso(raw: str) -> str:
         return extract_dmY(raw) or raw[:10]
 
 
-def proxy_for(source_id: str) -> dict[str, str] | None:
-    """Proxy tùy chọn — {SID}_HTTP_PROXY hoặc HTTP_PROXY (GHA datacenter)."""
-    env_key = f"{source_id.upper()}_HTTP_PROXY"
-    raw = (os.environ.get(env_key) or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
-
-
 def page_fetch_failed(page: int, exc: Exception, label: str) -> None:
     """Trang 1 lỗi → raise để monitor retry; trang sau chỉ dừng phân trang."""
     print(f"    {label} page {page}: {exc}")
@@ -125,7 +115,6 @@ def curl_get_text(
     """GET qua curl_cffi + retry — dùng khi requests bị chặn trên GHA."""
     from curl_cffi import requests as curl_requests
 
-    proxies = proxy_for(source_id) if source_id else None
     last_error: Exception | None = None
     for attempt in range(1, CURL_RETRIES + 1):
         profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
@@ -135,7 +124,6 @@ def curl_get_text(
                 url,
                 headers=headers,
                 timeout=timeout,
-                proxies=proxies,
                 verify=verify,
             )
             if resp.status_code == 403:

@@ -28,16 +28,10 @@ PAGE_PATH = "/qhcd/cong-bo-thong-tin"
 BCTC_PATH = "/bao-cao"
 DEFAULT_PARAMS = {"num": 20, "y": -1}
 VIX_TIMEOUT = 60
-VIX_RETRIES = 4
+VIX_RETRIES = 2
 VIX_RETRY_DELAY = 5
 _FILENAME_DATE_RE = re.compile(r"(20\d{2})(\d{2})(\d{2})")
 
-
-def _proxy() -> dict[str, str] | None:
-    raw = (os.environ.get("VIX_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
 
 
 def _is_blocked(status_code: int, html: str) -> bool:
@@ -55,7 +49,6 @@ def _page_url(base_path: str, params: dict, page: int) -> str:
 
 
 def _curl_get(url: str, referer: str, label: str) -> str:
-    proxies = _proxy()
     last_error: Exception | None = None
 
     for attempt in range(1, VIX_RETRIES + 1):
@@ -66,7 +59,6 @@ def _curl_get(url: str, referer: str, label: str) -> str:
                 HOME_URL,
                 headers={"Accept-Language": "vi-VN,vi;q=0.9"},
                 timeout=VIX_TIMEOUT,
-                proxies=proxies,
             )
             resp = session.get(
                 url,
@@ -76,7 +68,6 @@ def _curl_get(url: str, referer: str, label: str) -> str:
                     "Referer": referer,
                 },
                 timeout=VIX_TIMEOUT,
-                proxies=proxies,
             )
             if _is_blocked(resp.status_code, resp.text):
                 raise RuntimeError("HTTP 403 Forbidden / Cloudflare")

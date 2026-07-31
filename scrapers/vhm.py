@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 import time
@@ -16,16 +15,9 @@ _MOD = sys.modules[__name__]
 LAST_RAW_COUNT = 0
 PAGE_URL = "https://vinhomes.vn/vi/cong-bo-thong-tin"
 HOME_URL = "https://vinhomes.vn/vi"
-FETCH_RETRIES = 4
+FETCH_RETRIES = 2
 RETRY_DELAY = 5
 
-
-def _proxy() -> dict[str, str] | None:
-    """Proxy tùy chọn (residential) — set VHM_HTTP_PROXY hoặc HTTP_PROXY trên GHA."""
-    raw = (os.environ.get("VHM_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
 
 
 def _is_cloudflare_block(status_code: int, html: str) -> bool:
@@ -71,7 +63,6 @@ def _warm_session(session: curl_requests.Session) -> None:
 
 def _fetch_url(url: str) -> tuple[int, str]:
     """GET với session + retry nhiều browser profile."""
-    proxies = _proxy()
     last_error: Exception | None = None
 
     for attempt in range(1, FETCH_RETRIES + 1):
@@ -79,7 +70,7 @@ def _fetch_url(url: str) -> tuple[int, str]:
         session = curl_requests.Session(impersonate=profile)
         try:
             _warm_session(session)
-            resp = session.get(url, timeout=45, proxies=proxies)
+            resp = session.get(url, timeout=45)
             if _is_cloudflare_block(resp.status_code, resp.text):
                 raise RuntimeError(f"HTTP {resp.status_code} (Cloudflare chặn)")
             resp.raise_for_status()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import os
 import sys
 import time
 from datetime import datetime
@@ -22,16 +21,10 @@ CBTT_PAGE = "https://sunshinegroup.vn/cong-bo-thong-tin/"
 BCTC_PAGE = "https://sunshinegroup.vn/bao-cao-tai-chinh/"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 KSF_TIMEOUT = 45
-KSF_RETRIES = 3
+KSF_RETRIES = 2
 KSF_RETRY_DELAY = 5
 LAST_RAW_COUNT = 0
 
-
-def _proxy() -> dict[str, str] | None:
-    raw = (os.environ.get("KSF_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
 
 
 def _api_headers(referer: str) -> dict[str, str]:
@@ -43,7 +36,6 @@ def _api_headers(referer: str) -> dict[str, str]:
 
 
 def _get_api_payload(api_url: str, referer: str, label: str) -> dict:
-    proxies = _proxy()
     last_error: Exception | None = None
 
     for attempt in range(1, KSF_RETRIES + 1):
@@ -54,7 +46,6 @@ def _get_api_payload(api_url: str, referer: str, label: str) -> dict:
                 api_url,
                 headers=_api_headers(referer),
                 timeout=KSF_TIMEOUT,
-                proxies=proxies,
             )
             if resp.status_code == 403:
                 raise RuntimeError("HTTP 403 Forbidden")

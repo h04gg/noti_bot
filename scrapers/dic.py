@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 import time
@@ -21,17 +20,11 @@ CBTT_PAGE = f"{BASE}/cong-bo-thong-tin"
 BCTC_PAGE = f"{BASE}/bao-cao-tai-chinh"
 IMPERSONATE_PROFILES = ("chrome124", "chrome120", "safari17_0", "edge101")
 DIC_TIMEOUT = 60
-DIC_RETRIES = 4
+DIC_RETRIES = 2
 DIC_RETRY_DELAY = 6
 MAX_PAGES = 30
 LAST_RAW_COUNT = 0
 
-
-def _proxy() -> dict[str, str] | None:
-    raw = (os.environ.get("DIC_HTTP_PROXY") or os.environ.get("HTTP_PROXY") or "").strip()
-    if not raw:
-        return None
-    return {"http": raw, "https": raw}
 
 
 def _is_blocked(status_code: int, html: str) -> bool:
@@ -41,18 +34,17 @@ def _is_blocked(status_code: int, html: str) -> bool:
     return "just a moment" in low or "challenge-platform" in low or "access denied" in low
 
 
-def _warmup_session(session: curl_requests.Session, proxies: dict[str, str] | None) -> None:
+def _warmup_session(session: curl_requests.Session) -> None:
     session.get(
         BASE,
         headers={"Accept-Language": "vi-VN,vi;q=0.9"},
         timeout=DIC_TIMEOUT,
-        proxies=proxies,
     )
 
 
 def _open_session(profile: str) -> curl_requests.Session:
     session = curl_requests.Session(impersonate=profile)
-    _warmup_session(session, _proxy())
+    _warmup_session(session)
     return session
 
 
@@ -62,7 +54,6 @@ def _get_html(
     page: int,
     referer: str,
 ) -> str:
-    proxies = _proxy()
     params = {"page": page} if page > 1 else None
     resp = session.get(
         url,
@@ -73,7 +64,6 @@ def _get_html(
             "Referer": referer,
         },
         timeout=DIC_TIMEOUT,
-        proxies=proxies,
     )
     if _is_blocked(resp.status_code, resp.text):
         raise RuntimeError("HTTP 403 Forbidden / Cloudflare")
