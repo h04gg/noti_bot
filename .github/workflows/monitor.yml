@@ -57,7 +57,6 @@ jobs:
           HTTP_PROXY: ${{ secrets.HTTP_PROXY }}
           TCX_HTTP_PROXY: ${{ secrets.TCX_HTTP_PROXY }}
           VIX_HTTP_PROXY: ${{ secrets.VIX_HTTP_PROXY }}
-          BVSC_HTTP_PROXY: ${{ secrets.BVSC_HTTP_PROXY }}
           VCK_HTTP_PROXY: ${{ secrets.VCK_HTTP_PROXY }}
           KSF_HTTP_PROXY: ${{ secrets.KSF_HTTP_PROXY }}
           KDH_HTTP_PROXY: ${{ secrets.KDH_HTTP_PROXY }}
