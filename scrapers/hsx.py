@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from config import RECENT_DAYS
 from scrapers._common import finalize_fetch, format_dmY, make_item, page_fetch_failed
 
 _MOD = sys.modules[__name__]
@@ -22,9 +21,10 @@ PAGE_SIZE = 100
 MAX_PAGES = 50
 
 
-def _date_range(days: int = RECENT_DAYS) -> tuple[str, str]:
+def _date_range() -> tuple[str, str]:
+    """HSX: chỉ lấy tin từ hôm qua đến hôm nay."""
     today = datetime.now(VN_TZ).date()
-    start = today - timedelta(days=days)
+    start = today - timedelta(days=1)
     return start.isoformat(), today.isoformat()
 
 
