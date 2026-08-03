@@ -4,14 +4,25 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 import unicodedata
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
+from curl_cffi import requests as curl_requests
 
 from hose_watchlist import get_company
-from scrapers._common import finalize_fetch, format_dmY, item_uid, make_item, page_fetch_failed
+from scrapers._common import (
+    CURL_RETRIES,
+    CURL_RETRY_DELAY,
+    IMPERSONATE_PROFILES,
+    finalize_fetch,
+    format_dmY,
+    item_uid,
+    make_item,
+    page_fetch_failed,
+)
 
 _MOD = sys.modules[__name__]
 LAST_RAW_COUNT = 0
@@ -166,20 +177,82 @@ def _enrich_items(items: list[dict]) -> list[dict]:
     return items
 
 
+def _api_get_json(
+    api_url: str,
+    *,
+    params: dict,
+    headers: dict,
+) -> dict:
+    """GET JSON — ưu tiên curl_cffi (GHA thường bị HSX chặn requests thường)."""
+    last_error: Exception | None = None
+    for attempt in range(1, CURL_RETRIES + 1):
+        profile = IMPERSONATE_PROFILES[(attempt - 1) % len(IMPERSONATE_PROFILES)]
+        session = curl_requests.Session(impersonate=profile)
+        try:
+            resp = session.get(
+                api_url,
+                params=params,
+                headers=headers,
+                timeout=30,
+            )
+            status = resp.status_code
+            text = resp.text or ""
+            if status == 403:
+                raise RuntimeError("HTTP 403 Forbidden (có thể chặn IP GHA)")
+            if status >= 400:
+                raise RuntimeError(f"HTTP {status}: {text[:180]}")
+            try:
+                payload = resp.json()
+            except Exception as e:
+                raise RuntimeError(
+                    f"HSX JSON không hợp lệ (HTTP {status}): {text[:180]}"
+                ) from e
+            return payload
+        except Exception as e:
+            last_error = e
+            if attempt < CURL_RETRIES:
+                print(
+                    f"    HSX curl {profile} lần {attempt}/{CURL_RETRIES}: {e}"
+                    f" — thử lại sau {CURL_RETRY_DELAY}s"
+                )
+                time.sleep(CURL_RETRY_DELAY)
+        finally:
+            session.close()
+
+    # Fallback requests thường (môi trường local)
+    try:
+        resp = requests.get(api_url, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        raise RuntimeError(f"HSX API thất bại: {last_error or e}") from e
+
+
 def fetch(source: dict, session: requests.Session) -> list[dict]:
     api_url = source.get("api_url", API_URL)
     page_size = int(source.get("params", {}).get("pageSize", PAGE_SIZE))
     start_date, end_date = _date_range()
     referer = source.get("source_page", SOURCE_PAGE)
+    headers = {
+        "Accept": "application/json",
+        "Accept-Language": "vi-VN,vi;q=0.9",
+        "Referer": referer,
+        "Origin": "https://www.hsx.vn",
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        ),
+    }
 
     all_items: list[dict] = []
     seen: set[str] = set()
     page = 1
     total_pages = 1
+    last_page_error: Exception | None = None
 
     while page <= max(total_pages, 1) and page <= MAX_PAGES:
         try:
-            resp = session.get(
+            payload = _api_get_json(
                 api_url,
                 params={
                     "pageIndex": page,
@@ -187,16 +260,10 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
                     "startDate": start_date,
                     "endDate": end_date,
                 },
-                timeout=30,
-                headers={
-                    "Accept": "application/json",
-                    "Accept-Language": "vi-VN,vi;q=0.9",
-                    "Referer": referer,
-                },
+                headers=headers,
             )
-            resp.raise_for_status()
-            payload = resp.json()
         except Exception as e:
+            last_page_error = e
             page_fetch_failed(page, e, "HSX")
             break
 
@@ -237,7 +304,11 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
         page += 1
 
     if not all_items:
-        raise RuntimeError("HSX: không lấy được tin (API rỗng hoặc lỗi)")
+        if last_page_error:
+            raise RuntimeError(f"HSX: {last_page_error}") from last_page_error
+        # Cửa sổ hôm qua→hôm nay có thể thật sự trống — không coi là lỗi cứng
+        print(f"    HSX: 0 tin trong cửa sổ {start_date} → {end_date}")
+        return finalize_fetch(_MOD, [])
 
     enriched = _enrich_items(all_items)
     watched = sum(1 for it in enriched if not it.get("is_other"))
