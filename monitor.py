@@ -231,6 +231,122 @@ def _format_item_line(item: dict) -> str:
     return f"📄 <a href=\"{item['link']}\">{item['title']}</a>{date_str}"
 
 
+def _company_header(item: dict, total_new: int, part: str = "") -> str:
+    if item.get("is_other"):
+        header = f"📋 <b>Khác — {total_new} tin mới</b>"
+    else:
+        sector_emoji = item.get("sector_emoji") or "📈"
+        sector = item.get("sector") or "Sàn"
+        company_emoji = item.get("company_emoji") or "🏛️"
+        company = item.get("company") or item.get("symbol") or "Unknown"
+        symbol = item.get("symbol") or ""
+        header = (
+            f"{sector_emoji} <b>{sector}</b> · "
+            f"{company_emoji} <b>{company} ({symbol}) — {total_new} tin mới</b>"
+        )
+    if part:
+        header += f" <i>{part}</i>"
+    return header
+
+
+def _grouped_message_chunks(
+    source: dict, new_items: list[dict], total_new: int, sample: dict
+) -> list[str]:
+    footer = f"\n\n🔗 <a href=\"{source['source_page']}\">Xem tất cả →</a>"
+    lines = [_format_item_line(item) for item in new_items]
+    batches: list[list[str]] = []
+    batch: list[str] = []
+
+    for line in lines:
+        if batch and len("\n".join(batch + [line])) > TELEGRAM_MAX_LEN - 300:
+            batches.append(batch)
+            batch = [line]
+        else:
+            batch.append(line)
+    if batch:
+        batches.append(batch)
+
+    messages = []
+    total_parts = len(batches)
+    for i, part_lines in enumerate(batches):
+        header = _company_header(
+            sample,
+            total_new,
+            part=f"({i + 1}/{total_parts})" if total_parts > 1 else "",
+        )
+        msg = header + "\n" + "─" * 28 + "\n\n" + "\n".join(part_lines)
+        if i == 0 and total_new > len(new_items):
+            msg += f"\n\n<i>… và {total_new - len(new_items)} tin khác (xem tại link nguồn)</i>"
+        msg += footer
+        messages.append(msg)
+    return messages
+
+
+def _watchlist_order(source_id: str) -> dict:
+    if source_id == "hnx":
+        from hnx_watchlist import HNX_WATCHLIST
+
+        return HNX_WATCHLIST
+    from hose_watchlist import HOSE_WATCHLIST
+
+    return HOSE_WATCHLIST
+
+
+OTHER_GROUP_KEY = "_OTHER_"
+
+
+def _group_by_symbol(
+    new_items: list[dict], *, source_id: str
+) -> list[tuple[str, list[dict]]]:
+    """Watchlist theo thứ tự sheet; phần còn lại gom mục Khác."""
+    order = _watchlist_order(source_id)
+    buckets: dict[str, list[dict]] = {}
+    others: list[dict] = []
+
+    for item in new_items:
+        symbol = (item.get("symbol") or "").upper()
+        if item.get("is_other") or symbol not in order:
+            others.append(item)
+            continue
+        buckets.setdefault(symbol, []).append(item)
+
+    ordered: list[tuple[str, list[dict]]] = []
+    for symbol in order:
+        if symbol in buckets:
+            ordered.append((symbol, buckets.pop(symbol)))
+    for symbol, items in buckets.items():
+        ordered.append((symbol, items))
+    if others:
+        # Đánh dấu sample để header dùng mục Khác
+        for it in others:
+            it["is_other"] = True
+        ordered.append((OTHER_GROUP_KEY, others))
+    return ordered
+
+
+def send_grouped_by_symbol(source: dict, new_items: list[dict]) -> bool:
+    """Một tin nhắn / mã watchlist; tin ngoài list → 1 tin nhắn Khác."""
+    ok = True
+    groups = _group_by_symbol(new_items, source_id=source.get("id", ""))
+    for gi, (symbol, items) in enumerate(groups):
+        total = len(items)
+        label = "Khác" if symbol == OTHER_GROUP_KEY else symbol
+        if total > TELEGRAM_MAX_ITEMS:
+            to_send = items[:TELEGRAM_MAX_ITEMS]
+            print(f"    [{label}] chỉ gửi {len(to_send)}/{total} tin")
+        else:
+            to_send = items
+        chunks = _grouped_message_chunks(source, to_send, total_new=total, sample=items[0])
+        for i, msg in enumerate(chunks):
+            if not send_telegram(msg):
+                ok = False
+            if i < len(chunks) - 1:
+                time.sleep(0.5)
+        if gi < len(groups) - 1:
+            time.sleep(0.5)
+    return ok
+
+
 def _message_chunks(source: dict, new_items: list[dict], total_new: int) -> list[str]:
     footer = f"\n\n🔗 <a href=\"{source['source_page']}\">Xem tất cả →</a>"
     lines = [_format_item_line(item) for item in new_items]
@@ -259,6 +375,9 @@ def _message_chunks(source: dict, new_items: list[dict], total_new: int) -> list
 
 
 def send_new_items(source: dict, new_items: list[dict]) -> bool:
+    if source.get("id") in ("hsx", "hnx"):
+        return send_grouped_by_symbol(source, new_items)
+
     total = len(new_items)
     if total > TELEGRAM_MAX_ITEMS:
         to_send = new_items[:TELEGRAM_MAX_ITEMS]
