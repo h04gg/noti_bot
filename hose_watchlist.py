@@ -54,6 +54,7 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     "MSN": {"name": "Masan Group", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "🏪"},
     "SAB": {"name": "Sabeco", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "🍺"},
     "KDC": {"name": "Kido", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "🍦"},
+    "OCH": {"name": "OCH", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "🏨"},
     # ── Bán lẻ ───────────────────────────────────────────────────────────────
     "MWG": {"name": "Thế Giới Di Động", "sector": "Bán lẻ", "sector_emoji": "🛍️", "emoji": "📱"},
     "FRT": {"name": "FPT Retail", "sector": "Bán lẻ", "sector_emoji": "🛍️", "emoji": "💊"},
