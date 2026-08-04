@@ -33,6 +33,8 @@ HNX_WATCHLIST: dict[str, dict[str, str]] = {
     # ── Tiêu dùng ────────────────────────────────────────────────────────────
     "QNS": {"name": "Đường Quảng Ngãi", "sector": "Tiêu dùng", "sector_emoji": "🛒", "emoji": "🍬"},
     "OCH": {"name": "OCH", "sector": "Tiêu dùng", "sector_emoji": "🛒", "emoji": "🏨"},
+    "DMX": {"name": "Điện Máy Xanh", "sector": "Tiêu dùng", "sector_emoji": "🛒", "emoji": "📺"},
+    "MWG": {"name": "Thế Giới Di Động", "sector": "Tiêu dùng", "sector_emoji": "🛒", "emoji": "📱"},
 }
 
 

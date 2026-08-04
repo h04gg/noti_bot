@@ -55,8 +55,9 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     "SAB": {"name": "Sabeco", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "🍺"},
     "KDC": {"name": "Kido", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "🍦"},
     "OCH": {"name": "OCH", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "🏨"},
+    "DMX": {"name": "Điện Máy Xanh", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "📺"},
+    "MWG": {"name": "Thế Giới Di Động", "sector": "Tiêu dùng thiết yếu", "sector_emoji": "🛒", "emoji": "📱"},
     # ── Bán lẻ ───────────────────────────────────────────────────────────────
-    "MWG": {"name": "Thế Giới Di Động", "sector": "Bán lẻ", "sector_emoji": "🛍️", "emoji": "📱"},
     "FRT": {"name": "FPT Retail", "sector": "Bán lẻ", "sector_emoji": "🛍️", "emoji": "💊"},
     "PNJ": {"name": "PNJ", "sector": "Bán lẻ", "sector_emoji": "🛍️", "emoji": "💎"},
     # ── Công nghệ ────────────────────────────────────────────────────────────
