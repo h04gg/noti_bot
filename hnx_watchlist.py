@@ -12,6 +12,7 @@ HNX_WATCHLIST: dict[str, dict[str, str]] = {
     # ── Chứng khoán ──────────────────────────────────────────────────────────
     "MBS": {"name": "MB Securities", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "📑"},
     "SHS": {"name": "SHS", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "🔹"},
+    "EVS": {"name": "Everest Securities", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "⛰️"},
     # ── Bất động sản ─────────────────────────────────────────────────────────
     "KSF": {"name": "Sunshine Group", "sector": "Bất động sản", "sector_emoji": "🏗️", "emoji": "☀️"},
     "THD": {"name": "Thaiholdings", "sector": "Bất động sản", "sector_emoji": "🏗️", "emoji": "🏢"},

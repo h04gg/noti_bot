@@ -34,6 +34,7 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     "VIX": {"name": "VIX", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "🔶"},
     "VND": {"name": "VNDirect", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "🔷"},
     "VCI": {"name": "Vietcap", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "🔹"},
+    "EVS": {"name": "Everest Securities", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "⛰️"},
     # ── Bảo hiểm ─────────────────────────────────────────────────────────────
     "BVH": {"name": "Bảo Việt", "sector": "Bảo hiểm", "sector_emoji": "🛡️", "emoji": "🛡️"},
     # ── Bất động sản ─────────────────────────────────────────────────────────
