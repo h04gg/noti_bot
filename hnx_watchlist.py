@@ -7,7 +7,7 @@ HNX_WATCHLIST: dict[str, dict[str, str]] = {
     # ── Ngân hàng ────────────────────────────────────────────────────────────
     "ABB": {"name": "An Bình Bank", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🟩"},
     "NVB": {"name": "National Citizen", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🔵"},
-    "VBB": {"name": "Việt Nam Thương Tín", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🟡"},
+    "VBB": {"name": "VietBank", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🟡"},
     "BAB": {"name": "Bắc Á Bank", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🟠"},
     # ── Chứng khoán ──────────────────────────────────────────────────────────
     "MBS": {"name": "MB Securities", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "📑"},
