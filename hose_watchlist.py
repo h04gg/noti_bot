@@ -64,6 +64,8 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     "PNJ": {"name": "PNJ", "sector": "Bán lẻ", "sector_emoji": "🛍️", "emoji": "💎"},
     # ── Công nghệ ────────────────────────────────────────────────────────────
     "FPT": {"name": "FPT", "sector": "Công nghệ", "sector_emoji": "💻", "emoji": "💻"},
+    # ── Game ─────────────────────────────────────────────────────────────────
+    "VNZ": {"name": "VNG", "sector": "Game", "sector_emoji": "🎮", "emoji": "🎮"},
     # ── Nguyên vật liệu ──────────────────────────────────────────────────────
     "HPG": {"name": "Hòa Phát", "sector": "Nguyên vật liệu", "sector_emoji": "🏭", "emoji": "⚙️"},
     "GVR": {"name": "Tập đoàn Cao su", "sector": "Nguyên vật liệu", "sector_emoji": "🏭", "emoji": "🪵"},

@@ -36,6 +36,8 @@ HNX_WATCHLIST: dict[str, dict[str, str]] = {
     "OCH": {"name": "OCH", "sector": "Tiêu dùng", "sector_emoji": "🛒", "emoji": "🏨"},
     "DMX": {"name": "Điện Máy Xanh", "sector": "Tiêu dùng", "sector_emoji": "🛒", "emoji": "📺"},
     "MWG": {"name": "Thế Giới Di Động", "sector": "Tiêu dùng", "sector_emoji": "🛒", "emoji": "📱"},
+    # ── Game ─────────────────────────────────────────────────────────────────
+    "VNZ": {"name": "VNG", "sector": "Game", "sector_emoji": "🎮", "emoji": "🎮"},
 }
 
 
