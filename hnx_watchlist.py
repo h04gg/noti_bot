@@ -22,6 +22,7 @@ HNX_WATCHLIST: dict[str, dict[str, str]] = {
     "PHP": {"name": "Cảng Hải Phòng", "sector": "Vận tải", "sector_emoji": "✈️", "emoji": "⚓"},
     # ── Công nghiệp ──────────────────────────────────────────────────────────
     "VEA": {"name": "VEAM", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🚗"},
+    "REE": {"name": "Cơ Điện Lạnh", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🌡️"},
     # ── Nguyên vật liệu ──────────────────────────────────────────────────────
     "KSV": {"name": "Vinacomin Minerals", "sector": "Nguyên vật liệu", "sector_emoji": "🏭", "emoji": "⛏️"},
     "MSR": {"name": "Masan High-Tech", "sector": "Nguyên vật liệu", "sector_emoji": "🏭", "emoji": "🧪"},

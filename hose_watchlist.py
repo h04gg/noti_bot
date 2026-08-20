@@ -88,7 +88,7 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     # ── Công nghiệp ──────────────────────────────────────────────────────────
     "GEE": {"name": "Gelex Electric", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🔌"},
     "GEX": {"name": "Gelex", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🔧"},
-    "REE": {"name": "REE", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🌡️"},
+    "REE": {"name": "Cơ Điện Lạnh", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🌡️"},
     "VGC": {"name": "Viglacera", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🧱"},
     "CII": {"name": "CII", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🛣️"},
     "PC1": {"name": "PC1", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🏗️"},
