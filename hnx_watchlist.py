@@ -26,8 +26,9 @@ HNX_WATCHLIST: dict[str, dict[str, str]] = {
     # ── Nguyên vật liệu ──────────────────────────────────────────────────────
     "KSV": {"name": "Vinacomin Minerals", "sector": "Nguyên vật liệu", "sector_emoji": "🏭", "emoji": "⛏️"},
     "MSR": {"name": "Masan High-Tech", "sector": "Nguyên vật liệu", "sector_emoji": "🏭", "emoji": "🧪"},
-    # ── Năng lượng ───────────────────────────────────────────────────────────
+    # ── Năng lượng / Dầu khí ─────────────────────────────────────────────────
     "PVS": {"name": "PV Technical Services", "sector": "Năng lượng", "sector_emoji": "⛽", "emoji": "🛢️"},
+    "PET": {"name": "Petrosetco", "sector": "Dầu khí", "sector_emoji": "⛽", "emoji": "🛢️"},
     # ── Tài chính khác ───────────────────────────────────────────────────────
     "F88": {"name": "F88", "sector": "Tài chính khác", "sector_emoji": "💰", "emoji": "💵"},
     # ── Tiện ích ─────────────────────────────────────────────────────────────

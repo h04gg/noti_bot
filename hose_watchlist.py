@@ -80,6 +80,7 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     "PLX": {"name": "Petrolimex", "sector": "Năng lượng", "sector_emoji": "⛽", "emoji": "⛽"},
     "POW": {"name": "PV Power", "sector": "Năng lượng", "sector_emoji": "⛽", "emoji": "⚡"},
     "PVD": {"name": "PV Drilling", "sector": "Năng lượng", "sector_emoji": "⛽", "emoji": "🛠️"},
+    "PET": {"name": "Petrosetco", "sector": "Dầu khí", "sector_emoji": "⛽", "emoji": "🛢️"},
     # ── Tiện ích ─────────────────────────────────────────────────────────────
     "PGV": {"name": "EVN Genco 3", "sector": "Tiện ích", "sector_emoji": "⚡", "emoji": "⚡"},
     # ── Vận tải ──────────────────────────────────────────────────────────────
