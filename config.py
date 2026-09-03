@@ -13,11 +13,11 @@ CATEGORIES = {
 SOURCES = [
     {
         "id": "hsx",
-        "name": "HSX (Tin TCNY)",
+        "name": "HSX (Tin tức)",
         "emoji": "🏛️",
         "category": "securities",
-        "api_url": "https://api.hsx.vn/n/api/v1/1/news/securitiesType/1",
-        "params": {"pageSize": 100},
+        "api_url": "https://api.hsx.vn/n/api/v1/1/news",
+        "params": {"pageSize": 100, "aliasCate": "tin-tuc"},
         "source_page": "https://www.hsx.vn/vi/tin-tuc",
     },
     {

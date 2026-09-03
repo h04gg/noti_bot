@@ -240,6 +240,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
     seen_ids: set[int] = set()
     total: int | None = None
     page = 1
+    last_page_error: Exception | None = None
 
     try:
         while page <= MAX_PAGES:
@@ -254,6 +255,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
                     page_size=page_size,
                 )
             except Exception as e:
+                last_page_error = e
                 page_fetch_failed(page, e, "HNX")
                 break
 
@@ -289,7 +291,10 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             page += 1
 
         if not all_rows:
-            raise RuntimeError("HNX: không lấy được tin (API rỗng hoặc lỗi)")
+            if last_page_error:
+                raise RuntimeError(f"HNX: {last_page_error}") from last_page_error
+            print(f"    HNX: 0 tin trong cửa sổ {from_date} → {to_date}")
+            return finalize_fetch(_MOD, [])
 
         enriched = _enrich_rows(all_rows)
         watched = sum(1 for r in enriched if not r.get("is_other"))

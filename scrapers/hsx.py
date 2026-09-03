@@ -1,4 +1,4 @@
-"""Scraper: HSX — API tin tổ chức niêm yết (securitiesType/1)."""
+"""Scraper: HSX — API tin tức (aliasCate=tin-tuc)."""
 
 from __future__ import annotations
 
@@ -27,13 +27,17 @@ from scrapers._common import (
 _MOD = sys.modules[__name__]
 LAST_RAW_COUNT = 0
 
-API_URL = "https://api.hsx.vn/n/api/v1/1/news/securitiesType/1"
+API_URL = "https://api.hsx.vn/n/api/v1/1/news"
 DETAIL_URL = "https://www.hsx.vn/vi/tin-tuc/{slug}/{id}"
 SOURCE_PAGE = "https://www.hsx.vn/vi/tin-tuc"
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 PAGE_SIZE = 100
 MAX_PAGES = 50
 _TITLE_TICKER_RE = re.compile(r"^([A-Z0-9]{2,10})\s*:\s*(.+)$", re.DOTALL)
+_WARRANT_TICKER_RE = re.compile(
+    r"(?:Chứng quyền|CW)\s+([A-Z0-9]{2,10})\s*/",
+    re.I,
+)
 
 _VI_MAP = str.maketrans(
     {
@@ -144,13 +148,16 @@ def _doc_link(doc: dict, title: str) -> str:
 
 
 def _extract_ticker(doc: dict, title: str) -> tuple[str, str]:
-    """Trả (ticker, headline). Ticker ưu tiên field API `code`, fallback prefix tiêu đề."""
+    """Trả (ticker, headline). Prefix `MÃ:`, rồi mã trong tên chứng quyền."""
     code = (doc.get("code") or "").strip().upper()
     m = _TITLE_TICKER_RE.match(title or "")
     if m:
         prefix = m.group(1).upper()
         headline = m.group(2).strip()
         return (code or prefix), headline
+    w = _WARRANT_TICKER_RE.search(title or "")
+    if w:
+        return (code or w.group(1).upper()), (title or "").strip()
     return code, (title or "").strip()
 
 
@@ -259,6 +266,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
                     "pageSize": page_size,
                     "startDate": start_date,
                     "endDate": end_date,
+                    "aliasCate": source.get("params", {}).get("aliasCate", "tin-tuc"),
                 },
                 headers=headers,
             )
