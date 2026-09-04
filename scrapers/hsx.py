@@ -119,14 +119,18 @@ def _date_range() -> tuple[str, str]:
     return start.isoformat(), today.isoformat()
 
 
-def _doc_date(posted: int | float | None) -> str:
-    if not posted:
-        return ""
-    try:
-        dt = datetime.fromtimestamp(int(posted), tz=VN_TZ)
-    except (OverflowError, OSError, ValueError, TypeError):
-        return ""
-    return format_dmY(dt.day, dt.month, dt.year)
+def _doc_date(doc: dict) -> str:
+    """Ngày hiển thị: ưu tiên publishFrom (ngày trên web HSX), rồi postedDate — TZ VN."""
+    for key in ("publishFrom", "postedDate", "createdDate"):
+        raw = doc.get(key)
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromtimestamp(int(raw), tz=VN_TZ)
+        except (OverflowError, OSError, ValueError, TypeError):
+            continue
+        return format_dmY(dt.day, dt.month, dt.year)
+    return ""
 
 
 def _slugify(title: str) -> str:
@@ -295,7 +299,7 @@ def fetch(source: dict, session: requests.Session) -> list[dict]:
             news_id = doc.get("id")
             if not title or not link or news_id is None:
                 continue
-            item = make_item(title, link, _doc_date(doc.get("postedDate")))
+            item = make_item(title, link, _doc_date(doc))
             # UID theo id tin — không đổi khi sửa format URL
             item["uid"] = item_uid(f"hsx-news:{news_id}")
             item["symbol"] = ticker
