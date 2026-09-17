@@ -26,6 +26,7 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     "NAB": {"name": "Nam A Bank", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🟢"},
     "KLB": {"name": "KienlongBank", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🔷"},
     "VBB": {"name": "VietBank", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🟡"},
+    "BVB": {"name": "BVBank", "sector": "Ngân hàng", "sector_emoji": "🏦", "emoji": "🟦"},
     # ── Chứng khoán ──────────────────────────────────────────────────────────
     "TCX": {"name": "TCBS", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "📊"},
     "VCK": {"name": "VPS", "sector": "Chứng khoán", "sector_emoji": "📈", "emoji": "📉"},
