@@ -88,6 +88,8 @@ HOSE_WATCHLIST: dict[str, dict[str, str]] = {
     "VJC": {"name": "Vietjet", "sector": "Vận tải", "sector_emoji": "✈️", "emoji": "🟥"},
     "HVN": {"name": "Vietnam Airlines", "sector": "Vận tải", "sector_emoji": "✈️", "emoji": "✈️"},
     "GMD": {"name": "Gemadept", "sector": "Vận tải", "sector_emoji": "✈️", "emoji": "🚢"},
+    # ── Cảng biển ────────────────────────────────────────────────────────────
+    "HAH": {"name": "Hải An", "sector": "Cảng biển", "sector_emoji": "⚓", "emoji": "🚢"},
     # ── Công nghiệp ──────────────────────────────────────────────────────────
     "GEE": {"name": "Gelex Electric", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🔌"},
     "GEX": {"name": "Gelex", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🔧"},

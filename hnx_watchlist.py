@@ -21,6 +21,8 @@ HNX_WATCHLIST: dict[str, dict[str, str]] = {
     # ── Vận tải ──────────────────────────────────────────────────────────────
     "ACV": {"name": "ACV", "sector": "Vận tải", "sector_emoji": "✈️", "emoji": "🛫"},
     "PHP": {"name": "Cảng Hải Phòng", "sector": "Vận tải", "sector_emoji": "✈️", "emoji": "⚓"},
+    # ── Cảng biển ────────────────────────────────────────────────────────────
+    "HAH": {"name": "Hải An", "sector": "Cảng biển", "sector_emoji": "⚓", "emoji": "🚢"},
     # ── Công nghiệp ──────────────────────────────────────────────────────────
     "VEA": {"name": "VEAM", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🚗"},
     "REE": {"name": "Cơ Điện Lạnh", "sector": "Công nghiệp", "sector_emoji": "🔧", "emoji": "🌡️"},
